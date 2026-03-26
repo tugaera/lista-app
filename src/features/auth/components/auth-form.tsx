@@ -8,9 +8,10 @@ import { signIn, signUp } from "@/features/auth/actions";
 
 interface AuthFormProps {
   mode: "login" | "signup";
+  initialInviteCode?: string;
 }
 
-export function AuthForm({ mode }: AuthFormProps) {
+export function AuthForm({ mode, initialInviteCode }: AuthFormProps) {
   const action = mode === "login" ? signIn : signUp;
   const [state, formAction, pending] = useActionState(action, {
     error: "" as string,
@@ -46,6 +47,19 @@ export function AuthForm({ mode }: AuthFormProps) {
             }
             minLength={6}
           />
+
+          {mode === "signup" && (
+            <Input
+              id="invite_code"
+              name="invite_code"
+              type="text"
+              label="Invite Code"
+              placeholder="Enter your invite code"
+              required
+              defaultValue={initialInviteCode}
+              autoComplete="off"
+            />
+          )}
 
           {state.error && (
             <p className="rounded-lg bg-red-50 px-4 py-2 text-sm text-red-600">

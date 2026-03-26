@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useUser } from "@/features/users/components/user-provider";
 
-const links = [
+const baseLinks = [
   {
     href: "/shopping",
     label: "Shopping",
@@ -42,8 +43,21 @@ const links = [
   },
 ];
 
+const adminLink = {
+  href: "/admin",
+  label: "Admin",
+  icon: (
+    <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-1.053M18 10.5a3 3 0 11-6 0 3 3 0 016 0zm-9-3.75a3 3 0 11-6 0 3 3 0 016 0z" />
+    </svg>
+  ),
+};
+
 function BottomNav() {
   const pathname = usePathname();
+  const { isAdminOrModerator } = useUser();
+
+  const links = isAdminOrModerator ? [...baseLinks, adminLink] : baseLinks;
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-40 border-t border-gray-200 bg-white shadow-[0_-1px_3px_rgba(0,0,0,0.05)] lg:hidden">

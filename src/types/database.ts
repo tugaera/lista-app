@@ -203,6 +203,68 @@ export interface Database {
         };
         Relationships: [];
       };
+      profiles: {
+        Row: {
+          id: string;
+          email: string;
+          role: "admin" | "moderator" | "user";
+          invited_by: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id: string;
+          email: string;
+          role?: "admin" | "moderator" | "user";
+          invited_by?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          email?: string;
+          role?: "admin" | "moderator" | "user";
+          invited_by?: string | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      invites: {
+        Row: {
+          id: string;
+          code: string;
+          created_by: string;
+          used_by: string | null;
+          used_at: string | null;
+          expires_at: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          code: string;
+          created_by: string;
+          used_by?: string | null;
+          used_at?: string | null;
+          expires_at: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          code?: string;
+          created_by?: string;
+          used_by?: string | null;
+          used_at?: string | null;
+          expires_at?: string;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "invites_created_by_fkey";
+            columns: ["created_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       shopping_cart_items: {
         Row: {
           id: string;
@@ -259,8 +321,19 @@ export interface Database {
         Relationships: [];
       };
     };
-    Functions: Record<string, never>;
-    Enums: Record<string, never>;
+    Functions: {
+      validate_invite_code: {
+        Args: { invite_code: string };
+        Returns: boolean;
+      };
+      consume_invite: {
+        Args: { invite_code: string; user_id: string };
+        Returns: boolean;
+      };
+    };
+    Enums: {
+      user_role: "admin" | "moderator" | "user";
+    };
     CompositeTypes: Record<string, never>;
   };
 }
@@ -317,3 +390,13 @@ export type ShoppingCartItemInsert = TablesInsert<"shopping_cart_items">;
 export type ShoppingCartItemUpdate = TablesUpdate<"shopping_cart_items">;
 
 export type LatestProductPrice = Views<"latest_product_prices">;
+
+export type Profile = Tables<"profiles">;
+export type ProfileInsert = TablesInsert<"profiles">;
+export type ProfileUpdate = TablesUpdate<"profiles">;
+
+export type Invite = Tables<"invites">;
+export type InviteInsert = TablesInsert<"invites">;
+export type InviteUpdate = TablesUpdate<"invites">;
+
+export type UserRole = Database["public"]["Enums"]["user_role"];

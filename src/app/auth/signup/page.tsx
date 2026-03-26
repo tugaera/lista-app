@@ -1,5 +1,10 @@
 import { AuthForm } from "@/features/auth/components/auth-form";
 
-export default function SignupPage() {
-  return <AuthForm mode="signup" />;
+export default async function SignupPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ code?: string }>;
+}) {
+  const { code } = await searchParams;
+  return <AuthForm mode="signup" initialInviteCode={code} />;
 }

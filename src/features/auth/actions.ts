@@ -9,16 +9,51 @@ export async function signUp(
 ) {
   const email = formData.get("email") as string;
   const password = formData.get("password") as string;
+  const inviteCode = formData.get("invite_code") as string;
+
+  if (!inviteCode?.trim()) {
+    return { error: "Invite code is required" };
+  }
 
   const supabase = await createServerSupabaseClient();
 
-  const { error } = await supabase.auth.signUp({
+  // Validate invite code before creating the user
+  const { data: isValid, error: validateError } = await supabase.rpc(
+    "validate_invite_code",
+    { invite_code: inviteCode.trim() }
+  );
+
+  if (validateError) {
+    return { error: "Could not validate invite code" };
+  }
+
+  if (!isValid) {
+    return { error: "Invalid or expired invite code" };
+  }
+
+  // Create the user
+  const { data: authData, error: signUpError } = await supabase.auth.signUp({
     email,
     password,
   });
 
-  if (error) {
-    return { error: error.message };
+  if (signUpError) {
+    return { error: signUpError.message };
+  }
+
+  if (!authData.user) {
+    return { error: "Signup failed" };
+  }
+
+  // Consume the invite and link to the user's profile
+  const { data: consumed, error: consumeError } = await supabase.rpc(
+    "consume_invite",
+    { invite_code: inviteCode.trim(), user_id: authData.user.id }
+  );
+
+  if (consumeError || !consumed) {
+    // Invite was used by someone else between validation and consumption
+    return { error: "Invite code is no longer available. Please request a new one." };
   }
 
   redirect("/shopping");
