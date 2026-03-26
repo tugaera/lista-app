@@ -65,7 +65,7 @@ export function ShoppingPage({
       </header>
 
       {/* Cart items */}
-      <main className="mx-auto w-full max-w-lg flex-1 pb-40">
+      <main className="mx-auto w-full max-w-lg flex-1 pb-60 lg:pb-40">
         <CartItemList items={items} cartId={cartId} onUpdate={handleUpdate} />
       </main>
 
@@ -94,7 +94,7 @@ export function ShoppingPage({
 
       {/* Scanned barcode indicator */}
       {scannedBarcode && (
-        <div className="fixed bottom-28 left-4 right-4 z-40 mx-auto max-w-lg">
+        <div className="fixed bottom-44 left-4 right-4 z-50 mx-auto max-w-lg lg:bottom-28">
           <div className="flex items-center justify-between rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-700">
             <span>Barcode: {scannedBarcode}</span>
             <button
