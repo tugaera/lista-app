@@ -277,6 +277,7 @@ export async function getActiveCart(
 
 export async function finalizeCart(
   cartId: string,
+  storeId?: string,
 ): Promise<{ total: number }> {
   const supabase = await createServerSupabaseClient();
   const {
@@ -291,7 +292,10 @@ export async function finalizeCart(
   // Mark as finalized
   const { data, error } = await supabase
     .from("shopping_carts")
-    .update({ finalized_at: new Date().toISOString() })
+    .update({
+      finalized_at: new Date().toISOString(),
+      ...(storeId ? { store_id: storeId } : {}),
+    })
     .eq("id", cartId)
     .eq("user_id", user.id)
     .select("total")

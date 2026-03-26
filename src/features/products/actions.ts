@@ -1,5 +1,6 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import type { Product, Category, ProductEntry } from "@/types/database";
 
@@ -7,6 +8,7 @@ export interface ProductWithLatestPrice extends Product {
   category_name: string | null;
   latest_price: number | null;
   latest_store_name: string | null;
+  is_active: boolean;
 }
 
 export interface ProductWithHistory extends Product {
@@ -21,8 +23,9 @@ export async function searchProducts(
 
   const { data: products, error } = await supabase
     .from("products")
-    .select("id, name, barcode, category_id, created_at, categories(name)")
+    .select("id, name, barcode, category_id, is_active, created_at, categories(name)")
     .ilike("name", `%${query}%`)
+    .eq("is_active", true)
     .order("name")
     .limit(50);
 
@@ -49,6 +52,7 @@ export async function searchProducts(
       name: p.name,
       barcode: p.barcode,
       category_id: p.category_id,
+      is_active: p.is_active,
       created_at: p.created_at,
       category_name: cat?.name ?? null,
       latest_price: latest?.price ?? null,
@@ -66,7 +70,7 @@ export async function getProductByBarcode(
 
   const { data: product, error } = await supabase
     .from("products")
-    .select("id, name, barcode, category_id, created_at, categories(name)")
+    .select("id, name, barcode, category_id, is_active, created_at, categories(name)")
     .eq("barcode", barcode)
     .single();
 
@@ -92,6 +96,7 @@ export async function getProductByBarcode(
       name: product.name,
       barcode: product.barcode,
       category_id: product.category_id,
+      is_active: product.is_active,
       created_at: product.created_at,
       category_name: cat?.name ?? null,
       latest_price: latestEntry?.price ?? null,
@@ -115,7 +120,7 @@ export async function createProduct(data: {
       barcode: data.barcode ?? null,
       category_id: data.categoryId ?? null,
     })
-    .select("id, name, barcode, category_id, created_at")
+    .select("id, name, barcode, category_id, is_active, created_at")
     .single();
 
   if (error) {
@@ -150,7 +155,7 @@ export async function getProductWithHistory(
 
   const { data: product, error: productError } = await supabase
     .from("products")
-    .select("id, name, barcode, category_id, created_at, categories(name)")
+    .select("id, name, barcode, category_id, is_active, created_at, categories(name)")
     .eq("id", productId)
     .single();
 
@@ -189,10 +194,102 @@ export async function getProductWithHistory(
       name: product.name,
       barcode: product.barcode,
       category_id: product.category_id,
+      is_active: product.is_active,
       created_at: product.created_at,
       category_name: cat?.name ?? null,
       entries: entriesWithStore,
     },
     error: null,
   };
+}
+
+// ── Admin actions ─────────────────────────────────────────────────────────────
+
+export async function getAdminProducts(query: string = ""): Promise<{
+  data: ProductWithLatestPrice[];
+  error: string | null;
+}> {
+  const supabase = await createServerSupabaseClient();
+
+  let q = supabase
+    .from("products")
+    .select("id, name, barcode, category_id, is_active, created_at, categories(name)")
+    .order("name")
+    .limit(100);
+
+  if (query.length >= 2) {
+    q = q.ilike("name", `%${query}%`);
+  }
+
+  const { data: products, error } = await q;
+  if (error) return { data: [], error: error.message };
+
+  const productIds = (products ?? []).map((p) => p.id);
+  const { data: latestPrices } = productIds.length
+    ? await supabase
+        .from("latest_product_prices")
+        .select("product_id, price, store_name")
+        .in("product_id", productIds)
+    : { data: [] };
+
+  const priceMap = new Map((latestPrices ?? []).map((lp) => [lp.product_id, lp]));
+
+  return {
+    data: (products ?? []).map((p) => {
+      const latest = priceMap.get(p.id);
+      const cat = p.categories as unknown as { name: string } | null;
+      return {
+        id: p.id,
+        name: p.name,
+        barcode: p.barcode,
+        category_id: p.category_id,
+        is_active: p.is_active ?? true,
+        created_at: p.created_at,
+        category_name: cat?.name ?? null,
+        latest_price: latest?.price ?? null,
+        latest_store_name: latest?.store_name ?? null,
+      };
+    }),
+    error: null,
+  };
+}
+
+export async function adminUpdateProduct(
+  productId: string,
+  data: { name: string; barcode?: string; categoryId?: string },
+): Promise<{ error?: string }> {
+  const supabase = await createServerSupabaseClient();
+  const name = data.name.trim();
+  if (!name) return { error: "Name is required" };
+
+  const { error } = await supabase
+    .from("products")
+    .update({
+      name,
+      barcode: data.barcode?.trim() || null,
+      category_id: data.categoryId || null,
+    })
+    .eq("id", productId);
+
+  if (error) return { error: error.message };
+  revalidatePath("/admin");
+  revalidatePath("/products");
+  return {};
+}
+
+export async function adminToggleProductActive(
+  productId: string,
+  isActive: boolean,
+): Promise<{ error?: string }> {
+  const supabase = await createServerSupabaseClient();
+
+  const { error } = await supabase
+    .from("products")
+    .update({ is_active: isActive })
+    .eq("id", productId);
+
+  if (error) return { error: error.message };
+  revalidatePath("/admin");
+  revalidatePath("/products");
+  return {};
 }

@@ -9,6 +9,7 @@ import type { Store } from "@/features/stores/actions";
 
 interface CartWithCount extends ShoppingCart {
   item_count: number;
+  store_name?: string | null;
 }
 
 interface HistoryPageProps {
@@ -48,15 +49,22 @@ export function HistoryPage({ carts, stores }: HistoryPageProps) {
                 onClick={() => router.push(`/history/${cart.id}`)}
               >
                 <div>
-                  <h2 className="font-semibold text-gray-900">
-                    {new Date(cart.finalized_at ?? cart.created_at).toLocaleDateString(undefined, {
-                      weekday: "short",
-                      year: "numeric",
-                      month: "short",
-                      day: "numeric",
-                    })}
-                  </h2>
-                  <p className="text-sm text-gray-500">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="font-semibold text-gray-900">
+                      {new Date(cart.finalized_at ?? cart.created_at).toLocaleDateString(undefined, {
+                        weekday: "short",
+                        year: "numeric",
+                        month: "short",
+                        day: "numeric",
+                      })}
+                    </h2>
+                    {cart.store_name && (
+                      <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
+                        {cart.store_name}
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-0.5 text-sm text-gray-500">
                     {cart.item_count} {cart.item_count === 1 ? "item" : "items"}
                   </p>
                 </div>

@@ -66,6 +66,7 @@ create table products (
   name text not null,
   barcode text unique,
   category_id uuid references categories(id) on delete set null,
+  is_active boolean not null default true,
   created_at timestamptz not null default now()
 );
 
@@ -112,6 +113,7 @@ create index idx_shopping_list_items_list on shopping_list_items (list_id);
 create table shopping_carts (
   id uuid primary key default uuid_generate_v4(),
   user_id uuid not null references auth.users(id) on delete cascade,
+  store_id uuid references stores(id),
   total numeric(10, 2) not null default 0,
   receipt_image_url text,
   finalized_at timestamptz,
@@ -298,22 +300,28 @@ create policy "invites_delete_own" on invites
 create policy "categories_select" on categories
   for select to authenticated using (true);
 
--- Stores: readable/insertable by all authenticated; updatable by admin/moderator
+-- Stores: readable by all authenticated; insert/update by admin/moderator
 create policy "stores_select" on stores
   for select to authenticated using (true);
-create policy "stores_insert" on stores
-  for insert to authenticated with check (true);
+create policy "stores_insert_authenticated" on stores
+  for insert to authenticated
+  with check (get_my_role() in ('admin', 'moderator'));
 create policy "stores_update_admin" on stores
   for update to authenticated
   using (get_my_role() in ('admin', 'moderator'))
   with check (get_my_role() in ('admin', 'moderator'));
 
--- Products: readable/insertable by all authenticated
+-- Products: readable by all authenticated; insert/update by admin/moderator
 create policy "products_select" on products
   for select to authenticated using (true);
 
 create policy "products_insert" on products
   for insert to authenticated with check (true);
+
+create policy "products_update" on products
+  for update to authenticated
+  using (get_my_role() in ('admin', 'moderator'))
+  with check (get_my_role() in ('admin', 'moderator'));
 
 -- Product entries: readable/insertable by all authenticated
 create policy "product_entries_select" on product_entries

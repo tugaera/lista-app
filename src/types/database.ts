@@ -54,6 +54,7 @@ export interface Database {
           name: string;
           barcode: string | null;
           category_id: string | null;
+          is_active: boolean;
           created_at: string;
         };
         Insert: {
@@ -61,6 +62,7 @@ export interface Database {
           name: string;
           barcode?: string | null;
           category_id?: string | null;
+          is_active?: boolean;
           created_at?: string;
         };
         Update: {
@@ -68,6 +70,7 @@ export interface Database {
           name?: string;
           barcode?: string | null;
           category_id?: string | null;
+          is_active?: boolean;
           created_at?: string;
         };
         Relationships: [
@@ -186,6 +189,7 @@ export interface Database {
         Row: {
           id: string;
           user_id: string;
+          store_id: string | null;
           total: number;
           receipt_image_url: string | null;
           finalized_at: string | null;
@@ -194,6 +198,7 @@ export interface Database {
         Insert: {
           id?: string;
           user_id: string;
+          store_id?: string | null;
           total: number;
           receipt_image_url?: string | null;
           finalized_at?: string | null;
@@ -202,12 +207,21 @@ export interface Database {
         Update: {
           id?: string;
           user_id?: string;
+          store_id?: string | null;
           total?: number;
           receipt_image_url?: string | null;
           finalized_at?: string | null;
           created_at?: string;
         };
-        Relationships: [];
+        Relationships: [
+          {
+            foreignKeyName: "shopping_carts_store_id_fkey";
+            columns: ["store_id"];
+            isOneToOne: false;
+            referencedRelation: "stores";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       profiles: {
         Row: {

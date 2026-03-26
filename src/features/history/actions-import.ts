@@ -77,7 +77,7 @@ export async function importReceiptAsCart(params: {
   const finalizedAt = receiptDate ? new Date(receiptDate).toISOString() : new Date().toISOString();
   const { data: cart, error: cartErr } = await supabase
     .from("shopping_carts")
-    .insert({ user_id: user.id, total, finalized_at: finalizedAt })
+    .insert({ user_id: user.id, total, finalized_at: finalizedAt, store_id: storeId })
     .select("id")
     .single();
 

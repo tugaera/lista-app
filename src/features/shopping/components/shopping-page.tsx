@@ -7,12 +7,11 @@ import { finalizeCart } from "@/features/shopping/actions";
 import { CartItemList } from "./cart-item-list";
 import { QuickAddForm } from "./quick-add-form";
 import { BarcodeScanner } from "./barcode-scanner";
-import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 type ShoppingPageProps = {
   cartId: string;
   initialItems: CartItemDisplay[];
-  stores: { id: string; name: string }[];
+  stores: { id: string; name: string; is_active?: boolean }[];
 };
 
 export function ShoppingPage({
@@ -25,6 +24,7 @@ export function ShoppingPage({
   const [showScanner, setShowScanner] = useState(false);
   const [scannedBarcode, setScannedBarcode] = useState<string | undefined>();
   const [showCheckout, setShowCheckout] = useState(false);
+  const [checkoutStoreId, setCheckoutStoreId] = useState("");
   const [isCheckingOut, startCheckout] = useTransition();
   const [checkoutDone, setCheckoutDone] = useState<{ total: number } | null>(null);
 
@@ -68,7 +68,7 @@ export function ShoppingPage({
     setShowCheckout(false);
     startCheckout(async () => {
       try {
-        const result = await finalizeCart(cartId);
+        const result = await finalizeCart(cartId, checkoutStoreId || undefined);
         setCheckoutDone(result);
       } catch {
         // Error finalizing
@@ -220,15 +220,52 @@ export function ShoppingPage({
       )}
 
       {/* Checkout confirmation */}
-      <ConfirmDialog
-        open={showCheckout}
-        onClose={() => setShowCheckout(false)}
-        onConfirm={handleCheckout}
-        title="Finish shopping?"
-        message={`Complete this shopping trip with ${items.length} ${items.length === 1 ? "item" : "items"} totaling $${total.toFixed(2)}? This will be saved to your history.`}
-        confirmLabel="Checkout"
-        loading={isCheckingOut}
-      />
+      {showCheckout && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+            <h3 className="mb-1 text-lg font-semibold text-gray-900">Finish shopping?</h3>
+            <p className="mb-4 text-sm text-gray-500">
+              {items.length} {items.length === 1 ? "item" : "items"} · total{" "}
+              <span className="font-semibold text-emerald-600">${total.toFixed(2)}</span>
+            </p>
+
+            {/* Store selector */}
+            <div className="mb-5">
+              <label className="mb-1 block text-sm font-medium text-gray-700">
+                Store <span className="text-gray-400">(optional)</span>
+              </label>
+              <select
+                value={checkoutStoreId}
+                onChange={(e) => setCheckoutStoreId(e.target.value)}
+                className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+              >
+                <option value="">Select store…</option>
+                {stores.filter((s) => s.is_active !== false).map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setShowCheckout(false)}
+                className="flex-1 rounded-xl border border-gray-200 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleCheckout}
+                disabled={isCheckingOut}
+                className="flex-1 rounded-xl bg-emerald-600 py-2.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+              >
+                {isCheckingOut ? "Saving…" : "Checkout"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

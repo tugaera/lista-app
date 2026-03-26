@@ -15,7 +15,7 @@ export default async function HistoryRoute() {
     supabase
       .from("shopping_carts")
       .select(
-        `id, user_id, total, receipt_image_url, created_at, finalized_at, shopping_cart_items ( id )`
+        `id, user_id, total, receipt_image_url, created_at, finalized_at, store_id, stores ( name ), shopping_cart_items ( id )`
       )
       .eq("user_id", user.id)
       .not("finalized_at", "is", null)
@@ -23,13 +23,17 @@ export default async function HistoryRoute() {
     getStores(),
   ]);
 
-  const displayCarts = (cartsResult.data ?? []).map((cart) => ({
-    ...cart,
-    total: Number(cart.total),
-    item_count: Array.isArray(cart.shopping_cart_items)
-      ? cart.shopping_cart_items.length
-      : 0,
-  }));
+  const displayCarts = (cartsResult.data ?? []).map((cart) => {
+    const store = cart.stores as unknown as { name: string } | null;
+    return {
+      ...cart,
+      total: Number(cart.total),
+      store_name: store?.name ?? null,
+      item_count: Array.isArray(cart.shopping_cart_items)
+        ? cart.shopping_cart_items.length
+        : 0,
+    };
+  });
 
   const activeStores = storesResult.stores.filter((s) => s.is_active);
 

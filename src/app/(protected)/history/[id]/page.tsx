@@ -18,7 +18,7 @@ export default async function CartDetailRoute({
 
   const { data: cart } = await supabase
     .from("shopping_carts")
-    .select("id, total, receipt_image_url, finalized_at, created_at, user_id")
+    .select("id, total, receipt_image_url, finalized_at, created_at, user_id, store_id")
     .eq("id", id)
     .eq("user_id", user.id)
     .single();

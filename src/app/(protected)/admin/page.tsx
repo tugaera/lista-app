@@ -6,6 +6,7 @@ import { UserList } from "@/features/users/components/user-list";
 import { InviteForm } from "@/features/users/components/invite-form";
 import { InviteList } from "@/features/users/components/invite-list";
 import { StoreList } from "@/features/stores/components/store-list";
+import { AdminProductsPanel } from "@/features/products/components/admin-products-panel";
 import { AdminTabs } from "./admin-tabs";
 
 export default async function AdminPage() {
@@ -16,10 +17,11 @@ export default async function AdminPage() {
 
   if (!user) redirect("/auth/login");
 
-  const [usersResult, invitesResult, storesResult] = await Promise.all([
+  const [usersResult, invitesResult, storesResult, categoriesResult] = await Promise.all([
     getUsers(),
     getMyInvites(),
     getStores(),
+    supabase.from("categories").select("id, name, created_at").order("name"),
   ]);
 
   return (
@@ -34,8 +36,9 @@ export default async function AdminPage() {
             <UserList users={usersResult.users} />
           </>
         }
-        storesPanel={
-          <StoreList initialStores={storesResult.stores} />
+        storesPanel={<StoreList initialStores={storesResult.stores} />}
+        productsPanel={
+          <AdminProductsPanel categories={categoriesResult.data ?? []} />
         }
       />
     </div>
