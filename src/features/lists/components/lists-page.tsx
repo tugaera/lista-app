@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { createList, deleteList } from "@/features/lists/actions";
 import type { ShoppingList } from "@/types/database";
 
@@ -16,10 +17,12 @@ interface ListsPageProps {
   lists: ListWithCount[];
 }
 
-export function ListsPage({ lists }: ListsPageProps) {
+export function ListsPage({ lists: initialLists }: ListsPageProps) {
   const router = useRouter();
+  const [lists, setLists] = useState(initialLists);
   const [showForm, setShowForm] = useState(false);
   const [isPending, startTransition] = useTransition();
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
   function handleCreate(formData: FormData) {
     startTransition(async () => {
@@ -31,13 +34,25 @@ export function ListsPage({ lists }: ListsPageProps) {
     });
   }
 
-  function handleDelete(e: React.MouseEvent, listId: string) {
+  function handleConfirmDelete(e: React.MouseEvent, listId: string) {
     e.stopPropagation();
+    setDeleteConfirm(listId);
+  }
+
+  function handleDelete() {
+    if (!deleteConfirm) return;
+    const listId = deleteConfirm;
+
+    // Optimistic remove
+    setLists((prev) => prev.filter((l) => l.id !== listId));
+    setDeleteConfirm(null);
+
     startTransition(async () => {
       await deleteList(listId);
-      router.refresh();
     });
   }
+
+  const deleteListData = lists.find((l) => l.id === deleteConfirm);
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-6">
@@ -65,7 +80,7 @@ export function ListsPage({ lists }: ListsPageProps) {
       )}
 
       {lists.length === 0 ? (
-        <p className="text-center text-gray-500 py-12">
+        <p className="py-12 text-center text-gray-500">
           No shopping lists yet. Create one to get started.
         </p>
       ) : (
@@ -90,8 +105,7 @@ export function ListsPage({ lists }: ListsPageProps) {
                 <Button
                   variant="danger"
                   size="sm"
-                  onClick={(e) => handleDelete(e, list.id)}
-                  loading={isPending}
+                  onClick={(e) => handleConfirmDelete(e, list.id)}
                 >
                   Delete
                 </Button>
@@ -100,6 +114,17 @@ export function ListsPage({ lists }: ListsPageProps) {
           ))}
         </div>
       )}
+
+      {/* Delete confirmation */}
+      <ConfirmDialog
+        open={deleteConfirm !== null}
+        onClose={() => setDeleteConfirm(null)}
+        onConfirm={handleDelete}
+        title="Delete list"
+        message={`Are you sure you want to delete "${deleteListData?.name ?? "this list"}" and all its items?`}
+        confirmLabel="Delete"
+        loading={isPending}
+      />
     </div>
   );
 }

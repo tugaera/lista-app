@@ -6,6 +6,7 @@ import {
   updateCartItemQuantity,
 } from "@/features/shopping/actions";
 import type { CartItemDisplay } from "@/features/shopping/actions";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 type CartItemListProps = {
   items: CartItemDisplay[];
@@ -16,6 +17,22 @@ type CartItemListProps = {
 
 export function CartItemList({ items, cartId, onItemRemoved, onItemUpdated }: CartItemListProps) {
   const total = items.reduce((sum, item) => sum + item.subtotal, 0);
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [isDeleting, startDeleteTransition] = useTransition();
+
+  const deleteItem = items.find((i) => i.id === deleteConfirm);
+
+  function handleConfirmDelete() {
+    if (!deleteConfirm) return;
+    const itemId = deleteConfirm;
+
+    onItemRemoved(itemId);
+    setDeleteConfirm(null);
+
+    startDeleteTransition(async () => {
+      await removeCartItem(cartId, itemId);
+    });
+  }
 
   return (
     <div className="flex flex-col">
@@ -50,7 +67,7 @@ export function CartItemList({ items, cartId, onItemRemoved, onItemUpdated }: Ca
                 key={item.id}
                 item={item}
                 cartId={cartId}
-                onItemRemoved={onItemRemoved}
+                onDelete={() => setDeleteConfirm(item.id)}
                 onItemUpdated={onItemUpdated}
               />
             ))}
@@ -65,6 +82,16 @@ export function CartItemList({ items, cartId, onItemRemoved, onItemUpdated }: Ca
           </div>
         </>
       )}
+
+      <ConfirmDialog
+        open={deleteConfirm !== null}
+        onClose={() => setDeleteConfirm(null)}
+        onConfirm={handleConfirmDelete}
+        title="Remove item"
+        message={`Are you sure you want to remove "${deleteItem?.productName ?? "this item"}" from the cart?`}
+        confirmLabel="Remove"
+        loading={isDeleting}
+      />
     </div>
   );
 }
@@ -72,25 +99,17 @@ export function CartItemList({ items, cartId, onItemRemoved, onItemUpdated }: Ca
 function CartItemRow({
   item,
   cartId,
-  onItemRemoved,
+  onDelete,
   onItemUpdated,
 }: {
   item: CartItemDisplay;
   cartId: string;
-  onItemRemoved: (itemId: string) => void;
+  onDelete: () => void;
   onItemUpdated: (itemId: string, newQuantity: number) => void;
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editQuantity, setEditQuantity] = useState(String(item.quantity));
   const [isPending, startTransition] = useTransition();
-
-  function handleDelete() {
-    // Optimistic: remove from UI immediately
-    onItemRemoved(item.id);
-    startTransition(async () => {
-      await removeCartItem(cartId, item.id);
-    });
-  }
 
   function handleQuantitySubmit() {
     const newQty = parseInt(editQuantity, 10);
@@ -105,7 +124,6 @@ function CartItemRow({
       return;
     }
 
-    // Optimistic: update UI immediately
     onItemUpdated(item.id, newQty);
     setIsEditing(false);
     startTransition(async () => {
@@ -152,7 +170,7 @@ function CartItemRow({
         </span>
         <button
           type="button"
-          onClick={handleDelete}
+          onClick={onDelete}
           disabled={isPending}
           className="ml-1 rounded-md p-1 text-gray-400 hover:bg-red-50 hover:text-red-500"
           aria-label={`Remove ${item.productName}`}

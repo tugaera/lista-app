@@ -61,7 +61,7 @@ export async function deleteList(listId: string) {
 
 export async function addListItem(
   listId: string,
-  productId: string,
+  productName: string,
   quantity: number
 ) {
   const supabase = await createServerSupabaseClient();
@@ -73,6 +73,53 @@ export async function addListItem(
     redirect("/auth/login");
   }
 
+  // Find existing product by name or create new one
+  let productId: string;
+
+  const { data: existing } = await supabase
+    .from("products")
+    .select("id")
+    .ilike("name", productName.trim())
+    .limit(1)
+    .single();
+
+  if (existing) {
+    productId = existing.id;
+  } else {
+    const { data: newProduct, error: createError } = await supabase
+      .from("products")
+      .insert({ name: productName.trim() })
+      .select("id")
+      .single();
+
+    if (createError || !newProduct) {
+      return { error: createError?.message || "Failed to create product" };
+    }
+    productId = newProduct.id;
+  }
+
+  // Check if product already in this list — merge quantity
+  const { data: existingItem } = await supabase
+    .from("shopping_list_items")
+    .select("id, planned_quantity")
+    .eq("list_id", listId)
+    .eq("product_id", productId)
+    .single();
+
+  if (existingItem) {
+    const newQty = existingItem.planned_quantity + quantity;
+    const { error: updateError } = await supabase
+      .from("shopping_list_items")
+      .update({ planned_quantity: newQty })
+      .eq("id", existingItem.id);
+
+    if (updateError) {
+      return { error: updateError.message };
+    }
+
+    return { item: { id: existingItem.id }, merged: true };
+  }
+
   const { data, error } = await supabase
     .from("shopping_list_items")
     .insert({
@@ -80,14 +127,14 @@ export async function addListItem(
       product_id: productId,
       planned_quantity: quantity,
     })
-    .select("id")
+    .select("id, planned_quantity, product_id")
     .single();
 
   if (error) {
     return { error: error.message };
   }
 
-  return { item: data };
+  return { item: data, productName: productName.trim() };
 }
 
 export async function removeListItem(itemId: string) {
