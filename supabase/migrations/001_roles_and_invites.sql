@@ -126,6 +126,11 @@ CREATE POLICY "profiles_select_self" ON public.profiles
   FOR SELECT TO authenticated
   USING (id = auth.uid());
 
+-- Users can insert their own profile (fallback if trigger doesn't fire)
+CREATE POLICY "profiles_insert_self" ON public.profiles
+  FOR INSERT TO authenticated
+  WITH CHECK (id = auth.uid());
+
 -- Users can update only their own profile (but not change role)
 CREATE POLICY "profiles_update_self" ON public.profiles
   FOR UPDATE TO authenticated

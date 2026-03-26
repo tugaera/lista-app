@@ -19,7 +19,7 @@ export default async function ProtectedLayout({
     redirect("/auth/login");
   }
 
-  // Fetch or create profile
+  // Fetch profile
   let profile: Profile | null = null;
   const { data } = await supabase
     .from("profiles")
@@ -30,22 +30,41 @@ export default async function ProtectedLayout({
   if (data) {
     profile = data;
   } else {
-    // Profile may not exist yet (trigger didn't fire, or old user)
-    // Create a default profile
-    const { data: newProfile } = await supabase
+    // Profile doesn't exist yet (old user or trigger didn't fire)
+    // Try to create one
+    const { data: newProfile, error: insertError } = await supabase
       .from("profiles")
-      .upsert({
+      .insert({
         id: user.id,
         email: user.email ?? "",
-        role: "user",
+        role: "user" as const,
       })
       .select("*")
       .single();
-    profile = newProfile;
+
+    if (!insertError && newProfile) {
+      profile = newProfile;
+    } else {
+      // If insert also fails, try fetching again (maybe trigger created it)
+      const { data: retryProfile } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", user.id)
+        .single();
+      profile = retryProfile;
+    }
   }
 
+  // If we still have no profile, create a fallback in-memory
+  // so the app doesn't redirect in a loop
   if (!profile) {
-    redirect("/auth/login");
+    profile = {
+      id: user.id,
+      email: user.email ?? "",
+      role: "user",
+      invited_by: null,
+      created_at: new Date().toISOString(),
+    };
   }
 
   return (
