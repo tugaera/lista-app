@@ -69,10 +69,38 @@ export function QuickAddForm({
 
           setBarcodeStatus(`Found: ${product.name}`);
         } else {
-          setBarcodeStatus("New product — enter details below");
+          // Not in our DB — try Open Food Facts API
+          setBarcodeStatus("Searching Open Food Facts...");
+          try {
+            const res = await fetch(
+              `https://world.openfoodfacts.org/api/v0/product/${scannedBarcode}.json`,
+            );
+            const json = await res.json();
+
+            if (json.status === 1 && json.product) {
+              const p = json.product;
+              const name =
+                p.product_name_pt ||
+                p.generic_name_pt ||
+                p.product_name ||
+                p.generic_name ||
+                "";
+
+              if (name) {
+                setProductName(name);
+                setBarcodeStatus(`Found: ${name}`);
+              } else {
+                setBarcodeStatus("Product found but no name — type it below");
+              }
+            } else {
+              setBarcodeStatus("Product not found — type name below");
+            }
+          } catch {
+            setBarcodeStatus("Could not search online — type name below");
+          }
         }
       } catch {
-        setBarcodeStatus("New product — enter details below");
+        setBarcodeStatus("Error looking up barcode — type name below");
       }
     }
 
