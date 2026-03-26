@@ -56,6 +56,7 @@ create table categories (
 create table stores (
   id uuid primary key default uuid_generate_v4(),
   name text not null unique,
+  is_active boolean not null default true,
   created_at timestamptz not null default now()
 );
 
@@ -297,11 +298,15 @@ create policy "invites_delete_own" on invites
 create policy "categories_select" on categories
   for select to authenticated using (true);
 
--- Stores: readable/insertable by all authenticated users
+-- Stores: readable/insertable by all authenticated; updatable by admin/moderator
 create policy "stores_select" on stores
   for select to authenticated using (true);
 create policy "stores_insert" on stores
   for insert to authenticated with check (true);
+create policy "stores_update_admin" on stores
+  for update to authenticated
+  using (get_my_role() in ('admin', 'moderator'))
+  with check (get_my_role() in ('admin', 'moderator'));
 
 -- Products: readable/insertable by all authenticated
 create policy "products_select" on products

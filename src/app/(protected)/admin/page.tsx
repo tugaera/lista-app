@@ -1,9 +1,12 @@
 import { redirect } from "next/navigation";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getUsers, getMyInvites } from "@/features/users/actions";
+import { getStores } from "@/features/stores/actions";
 import { UserList } from "@/features/users/components/user-list";
 import { InviteForm } from "@/features/users/components/invite-form";
 import { InviteList } from "@/features/users/components/invite-list";
+import { StoreList } from "@/features/stores/components/store-list";
+import { AdminTabs } from "./admin-tabs";
 
 export default async function AdminPage() {
   const supabase = await createServerSupabaseClient();
@@ -11,24 +14,30 @@ export default async function AdminPage() {
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!user) {
-    redirect("/auth/login");
-  }
+  if (!user) redirect("/auth/login");
 
-  const [usersResult, invitesResult] = await Promise.all([
+  const [usersResult, invitesResult, storesResult] = await Promise.all([
     getUsers(),
     getMyInvites(),
+    getStores(),
   ]);
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-6">
       <h1 className="mb-6 text-2xl font-bold text-gray-900">Admin</h1>
 
-      <div className="space-y-6">
-        <InviteForm />
-        <InviteList invites={invitesResult.invites} />
-        <UserList users={usersResult.users} />
-      </div>
+      <AdminTabs
+        usersPanel={
+          <>
+            <InviteForm />
+            <InviteList invites={invitesResult.invites} />
+            <UserList users={usersResult.users} />
+          </>
+        }
+        storesPanel={
+          <StoreList initialStores={storesResult.stores} />
+        }
+      />
     </div>
   );
 }
