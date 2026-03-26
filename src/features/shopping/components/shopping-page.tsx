@@ -111,17 +111,22 @@ export function ShoppingPage({
         </svg>
       </button>
 
-      {/* Scanned barcode indicator */}
+      {/* Scanned barcode toast — top right */}
       {scannedBarcode && (
-        <div className="fixed bottom-44 left-4 right-4 z-50 mx-auto max-w-lg lg:bottom-28">
-          <div className="flex items-center justify-between rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-700">
-            <span>Barcode: {scannedBarcode}</span>
+        <div className="fixed right-4 top-28 z-50 animate-in fade-in slide-in-from-right">
+          <div className="flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-xs font-medium text-white shadow-lg">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+            <span>{scannedBarcode}</span>
             <button
               type="button"
               onClick={() => setScannedBarcode(undefined)}
-              className="ml-2 text-blue-500 hover:text-blue-700"
+              className="ml-1 rounded p-0.5 hover:bg-white/20"
             >
-              Clear
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
             </button>
           </div>
         </div>
