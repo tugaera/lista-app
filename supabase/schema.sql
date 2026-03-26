@@ -1,6 +1,7 @@
 -- ============================================================
--- Lista App - Database Schema
+-- Lista App - Full Database Schema
 -- PostgreSQL via Supabase
+-- Run this on a fresh Supabase project for a clean install.
 -- ============================================================
 
 -- Enable required extensions
@@ -8,8 +9,40 @@ create extension if not exists "uuid-ossp";
 create extension if not exists "pg_trgm";
 
 -- ============================================================
+-- ENUMS
+-- ============================================================
+
+create type public.user_role as enum ('admin', 'moderator', 'user');
+
+-- ============================================================
 -- TABLES
 -- ============================================================
+
+-- Profiles (linked to Supabase Auth users)
+create table profiles (
+  id         uuid primary key references auth.users(id) on delete cascade,
+  email      text not null,
+  role       public.user_role not null default 'user',
+  invited_by uuid references profiles(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+create index idx_profiles_role on profiles(role);
+create index idx_profiles_invited_by on profiles(invited_by);
+
+-- Invites
+create table invites (
+  id         uuid primary key default gen_random_uuid(),
+  code       text not null unique,
+  created_by uuid not null references profiles(id) on delete cascade,
+  used_by    uuid references profiles(id) on delete set null,
+  used_at    timestamptz,
+  expires_at timestamptz not null,
+  created_at timestamptz not null default now()
+);
+
+create index idx_invites_code on invites(code);
+create index idx_invites_created_by on invites(created_by);
 
 -- Categories
 create table categories (
@@ -117,10 +150,74 @@ join stores s on s.id = pe.store_id
 order by pe.product_id, pe.store_id, pe.created_at desc;
 
 -- ============================================================
+-- FUNCTIONS & TRIGGERS
+-- ============================================================
+
+-- Auto-create profile on signup
+create or replace function public.handle_new_user()
+returns trigger as $$
+begin
+  insert into public.profiles (id, email, role)
+  values (NEW.id, NEW.raw_user_meta_data->>'email', 'user')
+  on conflict (id) do nothing;
+  return NEW;
+end;
+$$ language plpgsql security definer;
+
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute function public.handle_new_user();
+
+-- Validate invite code (callable by anon for signup)
+create or replace function public.validate_invite_code(invite_code text)
+returns boolean as $$
+begin
+  return exists (
+    select 1 from public.invites
+    where code = invite_code
+      and used_by is null
+      and expires_at > now()
+  );
+end;
+$$ language plpgsql security definer;
+
+-- Consume invite (called after signup)
+create or replace function public.consume_invite(invite_code text, user_id uuid)
+returns boolean as $$
+declare
+  v_invite_id uuid;
+  v_created_by uuid;
+begin
+  select id, created_by into v_invite_id, v_created_by
+  from public.invites
+  where code = invite_code
+    and used_by is null
+    and expires_at > now()
+  for update;
+
+  if v_invite_id is null then
+    return false;
+  end if;
+
+  update public.invites
+  set used_by = user_id, used_at = now()
+  where id = v_invite_id;
+
+  update public.profiles
+  set invited_by = v_created_by
+  where id = user_id;
+
+  return true;
+end;
+$$ language plpgsql security definer;
+
+-- ============================================================
 -- ROW LEVEL SECURITY
 -- ============================================================
 
 -- Enable RLS on all tables
+alter table profiles enable row level security;
+alter table invites enable row level security;
 alter table categories enable row level security;
 alter table stores enable row level security;
 alter table products enable row level security;
@@ -130,6 +227,47 @@ alter table shopping_list_items enable row level security;
 alter table shopping_carts enable row level security;
 alter table shopping_cart_items enable row level security;
 
+-- Profiles: role-based access
+create policy "profiles_select_admin" on profiles
+  for select to authenticated
+  using (
+    exists (select 1 from profiles where id = auth.uid() and role = 'admin')
+  );
+
+create policy "profiles_select_moderator" on profiles
+  for select to authenticated
+  using (
+    id = auth.uid()
+    or (
+      exists (select 1 from profiles where id = auth.uid() and role = 'moderator')
+      and invited_by = auth.uid()
+    )
+  );
+
+create policy "profiles_select_self" on profiles
+  for select to authenticated
+  using (id = auth.uid());
+
+create policy "profiles_update_self" on profiles
+  for update to authenticated
+  using (id = auth.uid())
+  with check (id = auth.uid());
+
+-- Invites: creator-scoped
+create policy "invites_select_own" on invites
+  for select to authenticated
+  using (created_by = auth.uid());
+
+create policy "invites_insert" on invites
+  for insert to authenticated
+  with check (
+    created_by = auth.uid()
+    and exists (
+      select 1 from profiles
+      where id = auth.uid() and role in ('admin', 'moderator')
+    )
+  );
+
 -- Categories: readable by all authenticated users
 create policy "categories_select" on categories
   for select to authenticated using (true);
@@ -138,14 +276,14 @@ create policy "categories_select" on categories
 create policy "stores_select" on stores
   for select to authenticated using (true);
 
--- Products: readable by all authenticated users, insertable by authenticated
+-- Products: readable/insertable by all authenticated
 create policy "products_select" on products
   for select to authenticated using (true);
 
 create policy "products_insert" on products
   for insert to authenticated with check (true);
 
--- Product entries: readable by all authenticated, insertable by authenticated
+-- Product entries: readable/insertable by all authenticated
 create policy "product_entries_select" on product_entries
   for select to authenticated using (true);
 
@@ -221,6 +359,14 @@ create policy "shopping_cart_items_delete" on shopping_cart_items
   );
 
 -- ============================================================
+-- GRANTS (for RPC functions)
+-- ============================================================
+
+grant execute on function public.validate_invite_code(text) to anon;
+grant execute on function public.validate_invite_code(text) to authenticated;
+grant execute on function public.consume_invite(text, uuid) to authenticated;
+
+-- ============================================================
 -- SEED DATA
 -- ============================================================
 
@@ -246,3 +392,35 @@ insert into stores (name) values
 -- ============================================================
 -- Create a 'receipts' bucket in Supabase Storage dashboard
 -- and set it to private (authenticated users only).
+-- Then add storage policies:
+--
+-- create policy "Users can upload receipts"
+-- on storage.objects for insert to authenticated
+-- with check (
+--   bucket_id = 'receipts'
+--   and (storage.foldername(name))[1] = auth.uid()::text
+-- );
+--
+-- create policy "Users can view own receipts"
+-- on storage.objects for select to authenticated
+-- using (
+--   bucket_id = 'receipts'
+--   and (storage.foldername(name))[1] = auth.uid()::text
+-- );
+
+-- ============================================================
+-- BOOTSTRAP FIRST ADMIN
+-- ============================================================
+-- After running this schema:
+-- 1. Sign up your first user (you'll need a temporary workaround
+--    since no invites exist yet). Either:
+--    a) Temporarily comment out invite validation in the app, OR
+--    b) Insert a profile + invite manually:
+--
+-- INSERT INTO profiles (id, email, role)
+-- VALUES ('<your-auth-user-id>', 'your@email.com', 'admin');
+--
+-- INSERT INTO invites (code, created_by, expires_at)
+-- VALUES ('FIRST-INVITE', '<your-auth-user-id>', now() + interval '30 days');
+--
+-- Then use 'FIRST-INVITE' to register other users.
