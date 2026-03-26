@@ -297,9 +297,11 @@ create policy "invites_delete_own" on invites
 create policy "categories_select" on categories
   for select to authenticated using (true);
 
--- Stores: readable by all authenticated users
+-- Stores: readable/insertable by all authenticated users
 create policy "stores_select" on stores
   for select to authenticated using (true);
+create policy "stores_insert" on stores
+  for insert to authenticated with check (true);
 
 -- Products: readable/insertable by all authenticated
 create policy "products_select" on products
