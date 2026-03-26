@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/card";
 import { ImportReceiptModal } from "./import-receipt-modal";
 import type { ShoppingCart } from "@/types/database";
+import type { Store } from "@/features/stores/actions";
 
 interface CartWithCount extends ShoppingCart {
   item_count: number;
@@ -12,9 +13,10 @@ interface CartWithCount extends ShoppingCart {
 
 interface HistoryPageProps {
   carts: CartWithCount[];
+  stores: Store[];
 }
 
-export function HistoryPage({ carts }: HistoryPageProps) {
+export function HistoryPage({ carts, stores }: HistoryPageProps) {
   const router = useRouter();
   const [showImport, setShowImport] = useState(false);
 
@@ -67,7 +69,7 @@ export function HistoryPage({ carts }: HistoryPageProps) {
         </div>
       )}
 
-      {showImport && <ImportReceiptModal onClose={() => setShowImport(false)} />}
+      {showImport && <ImportReceiptModal stores={stores} onClose={() => setShowImport(false)} />}
     </div>
   );
 }

@@ -3,6 +3,7 @@
 import { useCallback, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { ExtractedReceipt } from "@/lib/ai";
+import type { Store } from "@/features/stores/actions";
 import { scanReceiptPhoto, importReceiptAsCart } from "@/features/history/actions-import";
 
 type Step = "idle" | "scanning" | "review" | "importing";
@@ -16,6 +17,7 @@ type EditableItem = {
 };
 
 interface ImportReceiptModalProps {
+  stores: Store[];
   onClose: () => void;
 }
 
@@ -28,7 +30,19 @@ function SpinnerIcon({ className }: { className?: string }) {
   );
 }
 
-export function ImportReceiptModal({ onClose }: ImportReceiptModalProps) {
+/** Best-effort fuzzy match: find the store whose name most closely matches the AI-detected name */
+function findBestStoreId(stores: Store[], aiStoreName: string | null): string {
+  if (!aiStoreName || stores.length === 0) return "";
+  const needle = aiStoreName.toLowerCase();
+  const exact = stores.find((s) => s.name.toLowerCase() === needle);
+  if (exact) return exact.id;
+  const partial = stores.find(
+    (s) => s.name.toLowerCase().includes(needle) || needle.includes(s.name.toLowerCase()),
+  );
+  return partial?.id ?? "";
+}
+
+export function ImportReceiptModal({ stores, onClose }: ImportReceiptModalProps) {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -37,7 +51,7 @@ export function ImportReceiptModal({ onClose }: ImportReceiptModalProps) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   // Receipt metadata from AI
-  const [storeName, setStoreName] = useState("");
+  const [storeId, setStoreId] = useState("");
   const [receiptDate, setReceiptDate] = useState("");
   const [receiptTotal, setReceiptTotal] = useState<number | null>(null);
 
@@ -69,7 +83,7 @@ export function ImportReceiptModal({ onClose }: ImportReceiptModalProps) {
     }
 
     const { data } = result as { data: ExtractedReceipt };
-    setStoreName(data.store_name ?? "");
+    setStoreId(findBestStoreId(stores, data.store_name));
     setReceiptTotal(data.grand_total);
 
     // Try to parse date into input[type=date] format (YYYY-MM-DD)
@@ -136,13 +150,19 @@ export function ImportReceiptModal({ onClose }: ImportReceiptModalProps) {
     if (selectedItems.length === 0) return;
     setStep("importing");
 
+    if (!storeId) {
+      setError("Please select a store before importing.");
+      setStep("review");
+      return;
+    }
+
     const result = await importReceiptAsCart({
       items: selectedItems.map((i) => ({
         name: i.name,
         quantity: i.quantity,
         unit_price: i.unit_price,
       })),
-      storeName: storeName || "Unknown Store",
+      storeId,
       receiptDate: receiptDate || null,
       total: selectedTotal,
     });
@@ -156,7 +176,7 @@ export function ImportReceiptModal({ onClose }: ImportReceiptModalProps) {
     router.push(`/history/${result.cartId}`);
     router.refresh();
     onClose();
-  }, [selectedItems, storeName, receiptDate, selectedTotal, router, onClose]);
+  }, [selectedItems, storeId, receiptDate, selectedTotal, router, onClose]);
 
   // ── Render ───────────────────────────────────────────────────────────────
 
@@ -226,14 +246,22 @@ export function ImportReceiptModal({ onClose }: ImportReceiptModalProps) {
               {/* Metadata */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-gray-500 mb-1">Store</label>
-                  <input
-                    type="text"
-                    value={storeName}
-                    onChange={(e) => setStoreName(e.target.value)}
-                    placeholder="Store name"
-                    className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm focus:border-emerald-500 focus:outline-none"
-                  />
+                  <label className="block text-xs font-medium text-gray-500 mb-1">
+                    Store <span className="text-red-400">*</span>
+                  </label>
+                  <select
+                    value={storeId}
+                    onChange={(e) => setStoreId(e.target.value)}
+                    required
+                    className={`w-full rounded-lg border px-3 py-1.5 text-sm focus:border-emerald-500 focus:outline-none ${
+                      !storeId ? "border-red-300 bg-red-50" : "border-gray-200"
+                    }`}
+                  >
+                    <option value="">Select store…</option>
+                    {stores.map((s) => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-500 mb-1">Date</label>
@@ -371,7 +399,7 @@ export function ImportReceiptModal({ onClose }: ImportReceiptModalProps) {
               <button
                 type="button"
                 onClick={handleImport}
-                disabled={selectedItems.length === 0 || step === "importing"}
+                disabled={selectedItems.length === 0 || !storeId || step === "importing"}
                 className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-emerald-600 py-2.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
               >
                 {step === "importing" ? (

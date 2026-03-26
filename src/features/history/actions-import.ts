@@ -50,7 +50,7 @@ export type ImportReceiptItem = {
 /** Create a finalized cart from selected receipt items. */
 export async function importReceiptAsCart(params: {
   items: ImportReceiptItem[];
-  storeName: string;
+  storeId: string;
   receiptDate?: string | null;
   total: number;
 }): Promise<{ cartId: string } | { error: string }> {
@@ -61,30 +61,17 @@ export async function importReceiptAsCart(params: {
 
   if (!user) redirect("/auth/login");
 
-  const { items, storeName, receiptDate, total } = params;
+  const { items, storeId, receiptDate, total } = params;
   if (items.length === 0) return { error: "No items to import" };
+  if (!storeId) return { error: "Please select a store" };
 
-  // 1. Find or create store
-  const cleanStoreName = (storeName || "Unknown Store").trim();
-  let storeId: string;
-  const { data: existingStore } = await supabase
+  // 1. Verify store exists
+  const { data: store } = await supabase
     .from("stores")
     .select("id")
-    .ilike("name", cleanStoreName)
-    .limit(1)
-    .maybeSingle();
-
-  if (existingStore) {
-    storeId = existingStore.id;
-  } else {
-    const { data: newStore, error: storeErr } = await supabase
-      .from("stores")
-      .insert({ name: cleanStoreName })
-      .select("id")
-      .single();
-    if (storeErr) return { error: `Failed to create store: ${storeErr.message}` };
-    storeId = newStore.id;
-  }
+    .eq("id", storeId)
+    .single();
+  if (!store) return { error: "Selected store not found" };
 
   // 2. Create a finalized cart
   const finalizedAt = receiptDate ? new Date(receiptDate).toISOString() : new Date().toISOString();
