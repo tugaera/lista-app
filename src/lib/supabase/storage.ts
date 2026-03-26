@@ -13,10 +13,7 @@ export async function uploadReceiptImage(
 
   const { error } = await supabase.storage
     .from(RECEIPTS_BUCKET)
-    .upload(filePath, file, {
-      cacheControl: "3600",
-      upsert: false,
-    });
+    .upload(filePath, file, { cacheControl: "3600", upsert: false });
 
   if (error) {
     return { error: error.message };
@@ -29,11 +26,31 @@ export async function uploadReceiptImage(
   return { path: filePath, url: publicUrl };
 }
 
-export function getReceiptPublicUrl(path: string): string {
-  // path can be a full URL already (legacy rows) — return as-is
-  if (path.startsWith("https://")) return path;
+/**
+ * Generate a 1-hour signed URL for a receipt image stored in the private bucket.
+ * `storagePath` can be:
+ *   - a raw path like "userId/1234-uuid.jpg"
+ *   - a legacy full URL (https://...supabase.co/storage/v1/object/...)
+ */
+export async function createReceiptSignedUrl(
+  storagePath: string,
+): Promise<string> {
+  const supabase = await createServerSupabaseClient();
 
-  // Construct the public URL directly without an API call
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  return `${supabaseUrl}/storage/v1/object/public/${RECEIPTS_BUCKET}/${path}`;
+  // If it's a full URL, extract the path after the bucket name
+  let path = storagePath;
+  if (storagePath.startsWith("https://")) {
+    const match = storagePath.match(
+      /\/storage\/v1\/object\/(?:public|sign|authenticated)\/receipts\/(.+?)(?:\?|$)/,
+    );
+    if (!match) return "";
+    path = decodeURIComponent(match[1]);
+  }
+
+  const { data, error } = await supabase.storage
+    .from(RECEIPTS_BUCKET)
+    .createSignedUrl(path, 60 * 60); // 1 hour
+
+  if (error || !data?.signedUrl) return "";
+  return data.signedUrl;
 }
