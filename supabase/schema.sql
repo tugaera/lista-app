@@ -168,6 +168,12 @@ create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
 
+-- Get current user's role (bypasses RLS to avoid recursion in policies)
+create or replace function public.get_my_role()
+returns public.user_role as $$
+  select role from public.profiles where id = auth.uid()
+$$ language sql security definer stable;
+
 -- Validate invite code (callable by anon for signup)
 create or replace function public.validate_invite_code(invite_code text)
 returns boolean as $$
@@ -227,21 +233,16 @@ alter table shopping_list_items enable row level security;
 alter table shopping_carts enable row level security;
 alter table shopping_cart_items enable row level security;
 
--- Profiles: role-based access
+-- Profiles: role-based access (uses get_my_role() to avoid RLS recursion)
 create policy "profiles_select_admin" on profiles
   for select to authenticated
-  using (
-    exists (select 1 from profiles where id = auth.uid() and role = 'admin')
-  );
+  using (public.get_my_role() = 'admin');
 
 create policy "profiles_select_moderator" on profiles
   for select to authenticated
   using (
     id = auth.uid()
-    or (
-      exists (select 1 from profiles where id = auth.uid() and role = 'moderator')
-      and invited_by = auth.uid()
-    )
+    or (public.get_my_role() = 'moderator' and invited_by = auth.uid())
   );
 
 create policy "profiles_select_self" on profiles
@@ -266,10 +267,7 @@ create policy "invites_insert" on invites
   for insert to authenticated
   with check (
     created_by = auth.uid()
-    and exists (
-      select 1 from profiles
-      where id = auth.uid() and role in ('admin', 'moderator')
-    )
+    and public.get_my_role() in ('admin', 'moderator')
   );
 
 -- Categories: readable by all authenticated users
@@ -366,6 +364,7 @@ create policy "shopping_cart_items_delete" on shopping_cart_items
 -- GRANTS (for RPC functions)
 -- ============================================================
 
+grant execute on function public.get_my_role() to authenticated;
 grant execute on function public.validate_invite_code(text) to anon;
 grant execute on function public.validate_invite_code(text) to authenticated;
 grant execute on function public.consume_invite(text, uuid) to authenticated;

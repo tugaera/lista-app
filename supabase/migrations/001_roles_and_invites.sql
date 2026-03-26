@@ -53,6 +53,14 @@ CREATE TRIGGER on_auth_user_created
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
 -- ============================================================
+-- 4b. Get current user role (bypasses RLS to avoid recursion)
+-- ============================================================
+CREATE OR REPLACE FUNCTION public.get_my_role()
+RETURNS public.user_role AS $$
+  SELECT role FROM public.profiles WHERE id = auth.uid()
+$$ LANGUAGE sql SECURITY DEFINER STABLE;
+
+-- ============================================================
 -- 5. Validate invite code (callable by anon for signup)
 -- ============================================================
 CREATE OR REPLACE FUNCTION public.validate_invite_code(invite_code text)
@@ -103,22 +111,17 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 -- 7. RLS Policies for profiles
 -- ============================================================
 
--- Admins see all
+-- Admins see all (uses get_my_role() to avoid RLS recursion)
 CREATE POLICY "profiles_select_admin" ON public.profiles
   FOR SELECT TO authenticated
-  USING (
-    EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
-  );
+  USING (public.get_my_role() = 'admin');
 
 -- Moderators see themselves + users they invited
 CREATE POLICY "profiles_select_moderator" ON public.profiles
   FOR SELECT TO authenticated
   USING (
     id = auth.uid()
-    OR (
-      EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'moderator')
-      AND invited_by = auth.uid()
-    )
+    OR (public.get_my_role() = 'moderator' AND invited_by = auth.uid())
   );
 
 -- Regular users see only themselves
@@ -151,15 +154,13 @@ CREATE POLICY "invites_insert" ON public.invites
   FOR INSERT TO authenticated
   WITH CHECK (
     created_by = auth.uid()
-    AND EXISTS (
-      SELECT 1 FROM public.profiles
-      WHERE id = auth.uid() AND role IN ('admin', 'moderator')
-    )
+    AND public.get_my_role() IN ('admin', 'moderator')
   );
 
 -- ============================================================
 -- 9. Grant execute on functions to anon + authenticated
 -- ============================================================
+GRANT EXECUTE ON FUNCTION public.get_my_role() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.validate_invite_code(text) TO anon;
 GRANT EXECUTE ON FUNCTION public.validate_invite_code(text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.consume_invite(text, uuid) TO authenticated;
