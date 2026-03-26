@@ -10,10 +10,11 @@ import type { CartItemDisplay } from "@/features/shopping/actions";
 type CartItemListProps = {
   items: CartItemDisplay[];
   cartId: string;
-  onUpdate: () => void;
+  onItemRemoved: (itemId: string) => void;
+  onItemUpdated: (itemId: string, newQuantity: number) => void;
 };
 
-export function CartItemList({ items, cartId, onUpdate }: CartItemListProps) {
+export function CartItemList({ items, cartId, onItemRemoved, onItemUpdated }: CartItemListProps) {
   const total = items.reduce((sum, item) => sum + item.subtotal, 0);
 
   return (
@@ -49,7 +50,8 @@ export function CartItemList({ items, cartId, onUpdate }: CartItemListProps) {
                 key={item.id}
                 item={item}
                 cartId={cartId}
-                onUpdate={onUpdate}
+                onItemRemoved={onItemRemoved}
+                onItemUpdated={onItemUpdated}
               />
             ))}
           </ul>
@@ -70,20 +72,23 @@ export function CartItemList({ items, cartId, onUpdate }: CartItemListProps) {
 function CartItemRow({
   item,
   cartId,
-  onUpdate,
+  onItemRemoved,
+  onItemUpdated,
 }: {
   item: CartItemDisplay;
   cartId: string;
-  onUpdate: () => void;
+  onItemRemoved: (itemId: string) => void;
+  onItemUpdated: (itemId: string, newQuantity: number) => void;
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editQuantity, setEditQuantity] = useState(String(item.quantity));
   const [isPending, startTransition] = useTransition();
 
   function handleDelete() {
+    // Optimistic: remove from UI immediately
+    onItemRemoved(item.id);
     startTransition(async () => {
       await removeCartItem(cartId, item.id);
-      onUpdate();
     });
   }
 
@@ -100,10 +105,11 @@ function CartItemRow({
       return;
     }
 
+    // Optimistic: update UI immediately
+    onItemUpdated(item.id, newQty);
+    setIsEditing(false);
     startTransition(async () => {
       await updateCartItemQuantity(cartId, item.id, newQty);
-      setIsEditing(false);
-      onUpdate();
     });
   }
 

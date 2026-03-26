@@ -84,6 +84,11 @@ export function QuickAddForm({
     if (product.lastPrice != null) {
       setPrice(product.lastPrice.toFixed(2));
     }
+    // Focus price input after selection
+    setTimeout(() => {
+      const priceInput = formRef.current?.querySelector<HTMLInputElement>('input[placeholder="Price"]');
+      priceInput?.focus();
+    }, 50);
   }
 
   function handleSubmit(e: React.FormEvent) {
@@ -151,23 +156,9 @@ export function QuickAddForm({
         <div className="mb-2">
           <ProductSearch
             onSelect={handleProductSelect}
-            placeholder="Product name"
-          />
-        </div>
-        {/* Hidden input to track selected product name (in case user types manually) */}
-        <input
-          type="hidden"
-          value={productName}
-          onChange={(e) => setProductName(e.target.value)}
-        />
-        {/* Override product name if user types directly instead of selecting */}
-        <div className="mb-2">
-          <input
-            type="text"
+            placeholder="Product name (search or type new)"
             value={productName}
-            onChange={(e) => setProductName(e.target.value)}
-            placeholder="Or type product name"
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            onValueChange={setProductName}
           />
         </div>
         <div className="flex gap-2">

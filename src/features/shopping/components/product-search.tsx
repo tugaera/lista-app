@@ -13,13 +13,22 @@ type ProductResult = {
 type ProductSearchProps = {
   onSelect: (product: ProductResult) => void;
   placeholder?: string;
+  value?: string;
+  onValueChange?: (value: string) => void;
 };
 
 export function ProductSearch({
   onSelect,
   placeholder = "Search products...",
+  value,
+  onValueChange,
 }: ProductSearchProps) {
-  const [query, setQuery] = useState("");
+  const [internalQuery, setInternalQuery] = useState("");
+  const query = value !== undefined ? value : internalQuery;
+  const setQuery = (v: string) => {
+    if (onValueChange) onValueChange(v);
+    else setInternalQuery(v);
+  };
   const [results, setResults] = useState<ProductResult[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -79,6 +88,7 @@ export function ProductSearch({
     onSelect(product);
     setQuery(product.name);
     setIsOpen(false);
+    setResults([]);
   }
 
   return (

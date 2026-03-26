@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { useRouter } from "next/navigation";
 import type { CartItemDisplay } from "@/features/shopping/actions";
 import { CartItemList } from "./cart-item-list";
 import { QuickAddForm } from "./quick-add-form";
@@ -18,25 +17,40 @@ export function ShoppingPage({
   initialItems,
   stores,
 }: ShoppingPageProps) {
-  const router = useRouter();
   const [items, setItems] = useState<CartItemDisplay[]>(initialItems);
   const [showScanner, setShowScanner] = useState(false);
   const [scannedBarcode, setScannedBarcode] = useState<string | undefined>();
 
   const handleItemAdded = useCallback(
     (item: CartItemDisplay) => {
-      setItems((prev) => [...prev, item]);
+      setItems((prev) => {
+        // If merged, replace existing item with updated quantity
+        if (item.merged) {
+          const exists = prev.find((i) => i.id === item.id);
+          if (exists) {
+            return prev.map((i) => (i.id === item.id ? { ...item } : i));
+          }
+        }
+        return [...prev, item];
+      });
       setScannedBarcode(undefined);
-      router.refresh();
     },
-    [router],
+    [],
   );
 
-  const handleUpdate = useCallback(() => {
-    router.refresh();
-    // Re-fetch items via router refresh triggers server component re-render
-    // For immediate feedback, we could also fetch client-side
-  }, [router]);
+  const handleItemRemoved = useCallback((itemId: string) => {
+    setItems((prev) => prev.filter((i) => i.id !== itemId));
+  }, []);
+
+  const handleItemUpdated = useCallback((itemId: string, newQuantity: number) => {
+    setItems((prev) =>
+      prev.map((i) =>
+        i.id === itemId
+          ? { ...i, quantity: newQuantity, subtotal: i.price * newQuantity }
+          : i,
+      ),
+    );
+  }, []);
 
   function handleBarcodeScan(barcode: string) {
     setScannedBarcode(barcode);
@@ -66,7 +80,12 @@ export function ShoppingPage({
 
       {/* Cart items */}
       <main className="mx-auto w-full max-w-lg flex-1 pb-60 lg:pb-40">
-        <CartItemList items={items} cartId={cartId} onUpdate={handleUpdate} />
+        <CartItemList
+          items={items}
+          cartId={cartId}
+          onItemRemoved={handleItemRemoved}
+          onItemUpdated={handleItemUpdated}
+        />
       </main>
 
       {/* Barcode scan button */}

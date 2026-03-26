@@ -10,6 +10,7 @@ export type CartItemDisplay = {
   storeName: string;
   subtotal: number;
   productEntryId: string;
+  merged?: boolean;
 };
 
 export async function createCart(): Promise<string> {
@@ -93,6 +94,62 @@ export async function addCartItem(
     }
   }
 
+  // If product was added via barcode, check if it already exists in this cart
+  if (data.barcode) {
+    // Find existing cart item for same product + store
+    const { data: existingCartItems } = await supabase
+      .from("shopping_cart_items")
+      .select(`
+        id,
+        quantity,
+        product_entries!inner ( product_id, store_id )
+      `)
+      .eq("cart_id", cartId);
+
+    const existingItem = (existingCartItems ?? []).find((ci) => {
+      const entry = ci.product_entries as unknown as { product_id: string; store_id: string };
+      return entry.product_id === productId && entry.store_id === data.storeId;
+    });
+
+    if (existingItem) {
+      // Merge quantities
+      const newQuantity = existingItem.quantity + data.quantity;
+      await supabase
+        .from("shopping_cart_items")
+        .update({ quantity: newQuantity })
+        .eq("id", existingItem.id);
+
+      // Still insert a new price entry for history
+      await supabase
+        .from("product_entries")
+        .insert({
+          product_id: productId,
+          store_id: data.storeId,
+          price: data.price,
+          quantity: data.quantity,
+        });
+
+      await recalculateCartTotal(cartId);
+
+      const { data: store } = await supabase
+        .from("stores")
+        .select("name")
+        .eq("id", data.storeId)
+        .single();
+
+      return {
+        id: existingItem.id,
+        productName: data.productName,
+        price: data.price,
+        quantity: newQuantity,
+        storeName: store?.name ?? "",
+        subtotal: data.price * newQuantity,
+        productEntryId: existingItem.id,
+        merged: true,
+      };
+    }
+  }
+
   // ALWAYS insert new product_entries row (never update - price history!)
   const { data: productEntry, error: entryError } = await supabase
     .from("product_entries")
@@ -140,6 +197,7 @@ export async function addCartItem(
     storeName: store?.name ?? "",
     subtotal: data.price * data.quantity,
     productEntryId: productEntry.id,
+    merged: false,
   };
 }
 
