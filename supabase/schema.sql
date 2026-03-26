@@ -32,13 +32,14 @@ create index idx_profiles_invited_by on profiles(invited_by);
 
 -- Invites
 create table invites (
-  id         uuid primary key default gen_random_uuid(),
-  code       text not null unique,
-  created_by uuid not null references profiles(id) on delete cascade,
-  used_by    uuid references profiles(id) on delete set null,
-  used_at    timestamptz,
-  expires_at timestamptz not null,
-  created_at timestamptz not null default now()
+  id            uuid primary key default gen_random_uuid(),
+  code          text not null unique,
+  created_by    uuid not null references profiles(id) on delete cascade,
+  assigned_role public.user_role not null default 'user',
+  used_by       uuid references profiles(id) on delete set null,
+  used_at       timestamptz,
+  expires_at    timestamptz not null,
+  created_at    timestamptz not null default now()
 );
 
 create index idx_invites_code on invites(code);
@@ -187,14 +188,16 @@ begin
 end;
 $$ language plpgsql security definer;
 
--- Consume invite (called after signup)
+-- Consume invite (called after signup — applies assigned_role)
 create or replace function public.consume_invite(invite_code text, user_id uuid)
 returns boolean as $$
 declare
   v_invite_id uuid;
   v_created_by uuid;
+  v_assigned_role public.user_role;
 begin
-  select id, created_by into v_invite_id, v_created_by
+  select id, created_by, assigned_role
+  into v_invite_id, v_created_by, v_assigned_role
   from public.invites
   where code = invite_code
     and used_by is null
@@ -210,7 +213,7 @@ begin
   where id = v_invite_id;
 
   update public.profiles
-  set invited_by = v_created_by
+  set invited_by = v_created_by, role = v_assigned_role
   where id = user_id;
 
   return true;

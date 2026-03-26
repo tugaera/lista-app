@@ -232,6 +232,7 @@ export interface Database {
           id: string;
           code: string;
           created_by: string;
+          assigned_role: "admin" | "moderator" | "user";
           used_by: string | null;
           used_at: string | null;
           expires_at: string;
@@ -241,6 +242,7 @@ export interface Database {
           id?: string;
           code: string;
           created_by: string;
+          assigned_role?: "admin" | "moderator" | "user";
           used_by?: string | null;
           used_at?: string | null;
           expires_at: string;
@@ -250,6 +252,7 @@ export interface Database {
           id?: string;
           code?: string;
           created_by?: string;
+          assigned_role?: "admin" | "moderator" | "user";
           used_by?: string | null;
           used_at?: string | null;
           expires_at?: string;

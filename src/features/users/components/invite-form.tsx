@@ -5,9 +5,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { createInvite } from "@/features/users/actions";
+import { useUser } from "./user-provider";
 import type { Invite } from "@/types/database";
 
 export function InviteForm() {
+  const { isAdmin } = useUser();
   const [state, formAction, pending] = useActionState(createInvite, {
     error: "" as string,
     invite: undefined as Invite | undefined,
@@ -28,12 +30,28 @@ export function InviteForm() {
     <Card>
       <h2 className="mb-4 text-lg font-semibold text-gray-900">Create Invite</h2>
 
-      <form action={formAction} className="flex items-end gap-3">
-        <div className="flex-1">
+      <form action={formAction} className="flex flex-wrap items-end gap-3">
+        {isAdmin && (
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">
+              Role
+            </label>
+            <select
+              name="assigned_role"
+              defaultValue="user"
+              className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            >
+              <option value="user">User</option>
+              <option value="moderator">Moderator</option>
+              <option value="admin">Admin</option>
+            </select>
+          </div>
+        )}
+        <div className="w-28">
           <Input
             name="expires_in_days"
             type="number"
-            label="Expires in (days)"
+            label="Expires (days)"
             defaultValue="7"
             min="1"
             max="90"
@@ -50,7 +68,12 @@ export function InviteForm() {
 
       {state.invite && (
         <div className="mt-4 rounded-lg bg-emerald-50 p-4">
-          <p className="mb-1 text-xs font-medium text-emerald-700">Invite Code</p>
+          <div className="mb-2 flex items-center gap-2">
+            <p className="text-xs font-medium text-emerald-700">Invite Code</p>
+            <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">
+              {state.invite.assigned_role}
+            </span>
+          </div>
           <p className="mb-3 font-mono text-lg font-bold text-emerald-800">
             {state.invite.code}
           </p>

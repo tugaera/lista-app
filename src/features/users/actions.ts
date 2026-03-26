@@ -69,6 +69,17 @@ export async function createInvite(
   }
 
   const expiresInDays = Number(formData.get("expires_in_days")) || 7;
+  const assignedRole = (formData.get("assigned_role") as string) || "user";
+
+  // Moderators can only invite users, not other moderators or admins
+  if (profile.role === "moderator" && assignedRole !== "user") {
+    return { error: "Moderators can only invite regular users" };
+  }
+
+  // Validate role
+  if (!["admin", "moderator", "user"].includes(assignedRole)) {
+    return { error: "Invalid role" };
+  }
 
   // Generate a short readable code
   const code = crypto.randomUUID().slice(0, 8).toUpperCase();
@@ -81,6 +92,7 @@ export async function createInvite(
     .insert({
       code,
       created_by: user.id,
+      assigned_role: assignedRole as "admin" | "moderator" | "user",
       expires_at: expiresAt.toISOString(),
     })
     .select("*")

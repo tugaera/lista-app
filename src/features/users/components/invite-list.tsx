@@ -33,9 +33,14 @@ export function InviteList({ invites }: { invites: Invite[] }) {
           return (
             <div key={invite.id} className="flex items-center justify-between py-3">
               <div>
-                <span className="font-mono text-sm font-bold text-gray-800">
-                  {invite.code}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-sm font-bold text-gray-800">
+                    {invite.code}
+                  </span>
+                  <span className="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600">
+                    {invite.assigned_role}
+                  </span>
+                </div>
                 <p className="text-xs text-gray-500">
                   Created {new Date(invite.created_at).toLocaleDateString()}
                   {invite.used_at && (
