@@ -6,6 +6,8 @@ import {
   uploadReceiptImage,
   createReceiptSignedUrl,
 } from "@/lib/supabase/storage";
+import { getAIProvider } from "@/lib/ai";
+import type { ExtractedReceipt } from "@/lib/ai";
 
 export type ReceiptImageWithUrl = {
   id: string;
@@ -107,6 +109,64 @@ export async function uploadCartReceiptImage(
   const signedUrl = await createReceiptSignedUrl(result.path);
 
   return { id: imageRow.id, signed_url: signedUrl };
+}
+
+export async function extractReceiptItems(
+  imageId: string,
+): Promise<{ data: ExtractedReceipt } | { error: string }> {
+  const supabase = await createServerSupabaseClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) return { error: "Not authenticated" };
+
+  // Fetch the image record (verifies it belongs to this user's cart)
+  const { data: image, error: fetchError } = await supabase
+    .from("cart_receipt_images")
+    .select("id, image_url, cart_id")
+    .eq("id", imageId)
+    .single();
+
+  if (fetchError || !image) return { error: "Image not found" };
+
+  // Verify cart belongs to user
+  const { data: cart } = await supabase
+    .from("shopping_carts")
+    .select("id")
+    .eq("id", image.cart_id)
+    .eq("user_id", user.id)
+    .single();
+
+  if (!cart) return { error: "Not authorized" };
+
+  // Get a fresh signed URL to fetch the image bytes
+  const signedUrl = await createReceiptSignedUrl(image.image_url);
+  if (!signedUrl) return { error: "Could not access receipt image" };
+
+  // Fetch image and convert to base64
+  let imageBase64: string;
+  let mimeType: string;
+  try {
+    const response = await fetch(signedUrl);
+    if (!response.ok) return { error: "Failed to fetch receipt image" };
+    const contentType = response.headers.get("content-type") ?? "image/jpeg";
+    mimeType = contentType.split(";")[0].trim();
+    const buffer = await response.arrayBuffer();
+    imageBase64 = Buffer.from(buffer).toString("base64");
+  } catch {
+    return { error: "Failed to download receipt image" };
+  }
+
+  // Call AI provider
+  try {
+    const ai = getAIProvider();
+    const data = await ai.extractReceiptFromImage(imageBase64, mimeType);
+    return { data };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "AI extraction failed";
+    return { error: message };
+  }
 }
 
 export async function deleteCartReceiptImage(
