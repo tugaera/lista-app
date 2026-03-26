@@ -16,6 +16,8 @@ type ProductSearchProps = {
   value?: string;
   onValueChange?: (value: string) => void;
   disabled?: boolean;
+  /** Current cart store — used to prefer that store's price in results */
+  storeId?: string;
 };
 
 export function ProductSearch({
@@ -24,6 +26,7 @@ export function ProductSearch({
   value,
   onValueChange,
   disabled = false,
+  storeId,
 }: ProductSearchProps) {
   const [internalQuery, setInternalQuery] = useState("");
   const query = value !== undefined ? value : internalQuery;
@@ -50,35 +53,52 @@ export function ProductSearch({
       setIsLoading(true);
       const supabase = createBrowserSupabaseClient();
 
+      // Fetch more rows than we need so we can deduplicate per product
       const { data } = await supabase
         .from("latest_product_prices")
-        .select("product_id, product_name, price, store_name")
+        .select("product_id, product_name, price, store_id, store_name, created_at")
         .ilike("product_name", `%${query}%`)
-        .limit(8);
+        .order("created_at", { ascending: false })
+        .limit(80);
 
-      const mapped: ProductResult[] = (data ?? []).map((row) => ({
-        id: row.product_id,
-        name: row.product_name,
-        lastPrice: row.price,
-        storeName: row.store_name,
-      }));
+      // Deduplicate: one result per product_id
+      // Priority: row whose store_id matches the current cart store, else most recent row
+      const seen = new Map<string, ProductResult>();
+      for (const row of data ?? []) {
+        const existing = seen.get(row.product_id);
+        if (!existing) {
+          // First time we see this product — add it
+          seen.set(row.product_id, {
+            id: row.product_id,
+            name: row.product_name,
+            lastPrice: row.price,
+            storeName: row.store_name,
+          });
+        } else if (storeId && row.store_id === storeId) {
+          // We already have this product but found a row matching current store — prefer it
+          seen.set(row.product_id, {
+            id: row.product_id,
+            name: row.product_name,
+            lastPrice: row.price,
+            storeName: row.store_name,
+          });
+        }
+      }
 
-      setResults(mapped);
-      setIsOpen(mapped.length > 0);
+      const deduped = Array.from(seen.values()).slice(0, 8);
+      setResults(deduped);
+      setIsOpen(deduped.length > 0);
       setIsLoading(false);
     }, 300);
 
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [query]);
+  }, [query, storeId]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
-      if (
-        containerRef.current &&
-        !containerRef.current.contains(e.target as Node)
-      ) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setIsOpen(false);
       }
     }
@@ -113,26 +133,20 @@ export function ProductSearch({
         <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-60 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
           {results.map((product) => (
             <button
-              key={`${product.id}-${product.storeName}`}
+              key={product.id}
               type="button"
               onClick={() => handleSelect(product)}
               className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-gray-50"
             >
-              <span className="font-medium text-gray-900">
-                {product.name}
-              </span>
-              <span className="ml-2 flex-shrink-0 text-xs text-gray-500">
-                {product.lastPrice != null && (
-                  <>
-                    ${product.lastPrice.toFixed(2)}
-                    {product.storeName && (
-                      <span className="ml-1 text-gray-400">
-                        @ {product.storeName}
-                      </span>
-                    )}
-                  </>
-                )}
-              </span>
+              <span className="font-medium text-gray-900">{product.name}</span>
+              {product.lastPrice != null && (
+                <span className="ml-2 flex-shrink-0 text-xs text-gray-500">
+                  €{product.lastPrice.toFixed(2)}
+                  {product.storeName && (
+                    <span className="ml-1 text-gray-400">@ {product.storeName}</span>
+                  )}
+                </span>
+              )}
             </button>
           ))}
         </div>

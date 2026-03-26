@@ -181,6 +181,7 @@ export function QuickAddForm({
             value={productName}
             onValueChange={setProductName}
             disabled={disabled}
+            storeId={storeId}
           />
         </div>
         <div className="flex gap-2">
