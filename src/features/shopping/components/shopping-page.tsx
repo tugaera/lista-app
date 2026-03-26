@@ -113,6 +113,8 @@ export function ShoppingPage({
         cartId={cartId}
         stores={stores}
         onItemAdded={handleItemAdded}
+        scannedBarcode={scannedBarcode}
+        onBarcodeClear={() => setScannedBarcode(undefined)}
       />
 
       {/* Barcode scanner modal */}

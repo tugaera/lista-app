@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { addCartItem } from "@/features/shopping/actions";
 import type { CartItemDisplay } from "@/features/shopping/actions";
 import { ProductSearch, type ProductResult } from "./product-search";
@@ -9,12 +9,16 @@ type QuickAddFormProps = {
   cartId: string;
   stores: { id: string; name: string }[];
   onItemAdded: (item: CartItemDisplay) => void;
+  scannedBarcode?: string;
+  onBarcodeClear?: () => void;
 };
 
 export function QuickAddForm({
   cartId,
   stores,
   onItemAdded,
+  scannedBarcode,
+  onBarcodeClear,
 }: QuickAddFormProps) {
   const [productName, setProductName] = useState("");
   const [price, setPrice] = useState("");
@@ -23,7 +27,57 @@ export function QuickAddForm({
   const [barcode, setBarcode] = useState<string | undefined>();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [barcodeStatus, setBarcodeStatus] = useState<string | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
+  const lastScannedRef = useRef<string | undefined>(undefined);
+
+  // When a barcode is scanned, look up the product
+  useEffect(() => {
+    if (!scannedBarcode || scannedBarcode === lastScannedRef.current) return;
+    lastScannedRef.current = scannedBarcode;
+    setBarcode(scannedBarcode);
+    setBarcodeStatus("Looking up barcode...");
+
+    async function lookupBarcode() {
+      try {
+        const { createBrowserSupabaseClient } = await import("@/lib/supabase/client");
+        const supabase = createBrowserSupabaseClient();
+
+        // Look up product by barcode
+        const { data: product } = await supabase
+          .from("products")
+          .select("id, name")
+          .eq("barcode", scannedBarcode!)
+          .single();
+
+        if (product) {
+          setProductName(product.name);
+
+          // Get latest price
+          const { data: entry } = await supabase
+            .from("product_entries")
+            .select("price, store_id")
+            .eq("product_id", product.id)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .single();
+
+          if (entry) {
+            setPrice(entry.price.toFixed(2));
+            if (entry.store_id) setStoreId(entry.store_id);
+          }
+
+          setBarcodeStatus(`Found: ${product.name}`);
+        } else {
+          setBarcodeStatus("New product — enter details below");
+        }
+      } catch {
+        setBarcodeStatus("New product — enter details below");
+      }
+    }
+
+    lookupBarcode();
+  }, [scannedBarcode]);
 
   function handleProductSelect(product: ProductResult) {
     setProductName(product.name);
@@ -70,6 +124,9 @@ export function QuickAddForm({
         setPrice("");
         setQuantity("1");
         setBarcode(undefined);
+        setBarcodeStatus(null);
+        lastScannedRef.current = undefined;
+        onBarcodeClear?.();
       } catch (err) {
         setError(
           err instanceof Error ? err.message : "Failed to add item",
@@ -85,6 +142,9 @@ export function QuickAddForm({
         onSubmit={handleSubmit}
         className="mx-auto max-w-lg px-4 py-3"
       >
+        {barcodeStatus && (
+          <p className="mb-2 text-xs font-medium text-emerald-600">{barcodeStatus}</p>
+        )}
         {error && (
           <p className="mb-2 text-xs text-red-600">{error}</p>
         )}
