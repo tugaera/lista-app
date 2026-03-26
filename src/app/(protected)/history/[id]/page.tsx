@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { CartDetailView } from "@/features/history/components/cart-detail-view";
+import { getCartReceiptImages } from "@/features/history/actions-receipts";
 
 export default async function CartDetailRoute({
   params,
@@ -40,17 +41,13 @@ export default async function CartDetailRoute({
     .eq("cart_id", id)
     .order("created_at", { ascending: true });
 
-  const { data: receiptImages } = await supabase
-    .from("cart_receipt_images")
-    .select("id, cart_id, image_url, sort_order, created_at")
-    .eq("cart_id", id)
-    .order("sort_order", { ascending: true });
+  const { images: receiptImages } = await getCartReceiptImages(id);
 
   return (
     <CartDetailView
       cart={cart}
       items={(items ?? []) as never[]}
-      receiptImages={receiptImages ?? []}
+      receiptImages={receiptImages}
     />
   );
 }

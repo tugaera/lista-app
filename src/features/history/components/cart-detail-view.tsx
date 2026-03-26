@@ -4,7 +4,8 @@ import { useCallback, useRef, useState, useTransition } from "react";
 import { Card } from "@/components/ui/card";
 import { useRouter } from "next/navigation";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import type { ShoppingCart, CartReceiptImage } from "@/types/database";
+import type { ShoppingCart } from "@/types/database";
+import type { ReceiptImageWithUrl } from "@/features/history/actions-receipts";
 import {
   uploadCartReceiptImage,
   deleteCartReceiptImage,
@@ -30,7 +31,7 @@ interface CartItem {
 interface CartDetailViewProps {
   cart: ShoppingCart;
   items: CartItem[];
-  receiptImages: CartReceiptImage[];
+  receiptImages: ReceiptImageWithUrl[];
 }
 
 export function CartDetailView({
@@ -40,7 +41,7 @@ export function CartDetailView({
 }: CartDetailViewProps) {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [images, setImages] = useState<CartReceiptImage[]>(initialImages);
+  const [images, setImages] = useState<ReceiptImageWithUrl[]>(initialImages);
   const [isUploading, startUpload] = useTransition();
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [viewingImage, setViewingImage] = useState<string | null>(null);
@@ -73,7 +74,8 @@ export function CartDetailView({
             {
               id: result.id,
               cart_id: cart.id,
-              image_url: result.image_url,
+              image_path: "",
+              signed_url: result.signed_url,
               sort_order: prev.length,
               created_at: new Date().toISOString(),
             },
@@ -237,11 +239,11 @@ export function CartDetailView({
               <div key={img.id} className="group relative">
                 <button
                   type="button"
-                  onClick={() => setViewingImage(img.image_url)}
+                  onClick={() => setViewingImage(img.signed_url)}
                   className="block w-full"
                 >
                   <img
-                    src={img.image_url}
+                    src={img.signed_url}
                     alt={`Receipt ${img.sort_order + 1}`}
                     className="h-28 w-full rounded-lg object-cover"
                   />
@@ -376,11 +378,11 @@ export function CartDetailView({
                 onClick={(e) => {
                   e.stopPropagation();
                   const idx = images.findIndex(
-                    (i) => i.image_url === viewingImage,
+                    (i) => i.signed_url === viewingImage,
                   );
                   const prev =
                     idx <= 0 ? images.length - 1 : idx - 1;
-                  setViewingImage(images[prev].image_url);
+                  setViewingImage(images[prev].signed_url);
                 }}
                 className="absolute left-2 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20"
               >
@@ -404,11 +406,11 @@ export function CartDetailView({
                 onClick={(e) => {
                   e.stopPropagation();
                   const idx = images.findIndex(
-                    (i) => i.image_url === viewingImage,
+                    (i) => i.signed_url === viewingImage,
                   );
                   const next =
                     idx >= images.length - 1 ? 0 : idx + 1;
-                  setViewingImage(images[next].image_url);
+                  setViewingImage(images[next].signed_url);
                 }}
                 className="absolute right-2 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20"
               >
@@ -440,7 +442,7 @@ export function CartDetailView({
           {/* Page indicator */}
           {images.length > 1 && (
             <div className="absolute bottom-6 left-1/2 -translate-x-1/2 rounded-full bg-black/50 px-3 py-1 text-sm text-white">
-              {images.findIndex((i) => i.image_url === viewingImage) + 1} /{" "}
+              {images.findIndex((i) => i.signed_url === viewingImage) + 1} /{" "}
               {images.length}
             </div>
           )}

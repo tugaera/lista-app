@@ -2,9 +2,24 @@
 
 import { redirect } from "next/navigation";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
-import { uploadReceiptImage } from "@/lib/supabase/storage";
+import {
+  uploadReceiptImage,
+  getReceiptSignedUrls,
+} from "@/lib/supabase/storage";
 
-export async function getCartReceiptImages(cartId: string) {
+export type ReceiptImageWithUrl = {
+  id: string;
+  cart_id: string;
+  image_path: string;
+  signed_url: string;
+  sort_order: number;
+  created_at: string;
+};
+
+/** Fetches receipt images for a cart and returns them with fresh signed URLs */
+export async function getCartReceiptImages(
+  cartId: string,
+): Promise<{ images: ReceiptImageWithUrl[]; error?: string }> {
   const supabase = await createServerSupabaseClient();
   const {
     data: { user },
@@ -24,13 +39,29 @@ export async function getCartReceiptImages(cartId: string) {
     return { error: error.message, images: [] };
   }
 
-  return { images: data ?? [] };
+  const rows = data ?? [];
+  if (rows.length === 0) return { images: [] };
+
+  // image_url stores the storage path (e.g. "userId/timestamp-uuid.jpg")
+  const paths = rows.map((r) => r.image_url);
+  const signedUrls = await getReceiptSignedUrls(paths);
+
+  const images: ReceiptImageWithUrl[] = rows.map((row) => ({
+    id: row.id,
+    cart_id: row.cart_id,
+    image_path: row.image_url,
+    signed_url: signedUrls[row.image_url] ?? "",
+    sort_order: row.sort_order,
+    created_at: row.created_at,
+  }));
+
+  return { images };
 }
 
 export async function uploadCartReceiptImage(
   cartId: string,
   formData: FormData,
-): Promise<{ id: string; image_url: string } | { error: string }> {
+): Promise<{ id: string; signed_url: string } | { error: string }> {
   const supabase = await createServerSupabaseClient();
   const {
     data: { user },
@@ -57,16 +88,15 @@ export async function uploadCartReceiptImage(
     return { error: "No file provided" };
   }
 
-  // Validate file type
   if (!file.type.startsWith("image/")) {
     return { error: "File must be an image" };
   }
 
-  // Validate file size (10MB max)
   if (file.size > 10 * 1024 * 1024) {
     return { error: "File must be less than 10MB" };
   }
 
+  // Upload and get storage path
   const result = await uploadReceiptImage(file, user.id);
   if ("error" in result) {
     return { error: result.error };
@@ -82,21 +112,26 @@ export async function uploadCartReceiptImage(
 
   const nextOrder = (existing?.[0]?.sort_order ?? -1) + 1;
 
+  // Store the storage path (not a public URL)
   const { data: imageRow, error: insertError } = await supabase
     .from("cart_receipt_images")
     .insert({
       cart_id: cartId,
-      image_url: result.url,
+      image_url: result.path,
       sort_order: nextOrder,
     })
-    .select("id, image_url")
+    .select("id")
     .single();
 
   if (insertError) {
     return { error: insertError.message };
   }
 
-  return { id: imageRow.id, image_url: imageRow.image_url };
+  // Generate a signed URL for immediate display
+  const signedUrls = await getReceiptSignedUrls([result.path]);
+  const signedUrl = signedUrls[result.path] ?? "";
+
+  return { id: imageRow.id, signed_url: signedUrl };
 }
 
 export async function deleteCartReceiptImage(
