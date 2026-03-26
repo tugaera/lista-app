@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import {
   uploadReceiptImage,
-  getReceiptSignedUrls,
+  getReceiptPublicUrl,
 } from "@/lib/supabase/storage";
 
 export type ReceiptImageWithUrl = {
@@ -16,7 +16,7 @@ export type ReceiptImageWithUrl = {
   created_at: string;
 };
 
-/** Fetches receipt images for a cart and returns them with fresh signed URLs */
+/** Fetches receipt images for a cart and returns them with public URLs */
 export async function getCartReceiptImages(
   cartId: string,
 ): Promise<{ images: ReceiptImageWithUrl[]; error?: string }> {
@@ -42,24 +42,11 @@ export async function getCartReceiptImages(
   const rows = data ?? [];
   if (rows.length === 0) return { images: [] };
 
-  // image_url may be a storage path ("userId/file.jpg") or a legacy full URL.
-  // Extract the storage path in both cases so createSignedUrls works.
-  function toStoragePath(value: string): string {
-    // Full Supabase Storage URL → extract path after "/object/public/receipts/" or "/object/sign/receipts/"
-    const match = value.match(/\/object\/(?:public|sign)\/receipts\/(.+?)(?:\?|$)/);
-    if (match) return match[1];
-    // Already a path
-    return value;
-  }
-
-  const paths = rows.map((r) => toStoragePath(r.image_url));
-  const signedUrls = await getReceiptSignedUrls(paths);
-
-  const images: ReceiptImageWithUrl[] = rows.map((row, i) => ({
+  const images: ReceiptImageWithUrl[] = rows.map((row) => ({
     id: row.id,
     cart_id: row.cart_id,
-    image_path: paths[i],
-    signed_url: signedUrls[paths[i]] ?? "",
+    image_path: row.image_url,
+    signed_url: getReceiptPublicUrl(row.image_url),
     sort_order: row.sort_order,
     created_at: row.created_at,
   }));
@@ -105,7 +92,7 @@ export async function uploadCartReceiptImage(
     return { error: "File must be less than 10MB" };
   }
 
-  // Upload and get storage path
+  // Upload and get storage path + public URL
   const result = await uploadReceiptImage(file, user.id);
   if ("error" in result) {
     return { error: result.error };
@@ -121,12 +108,12 @@ export async function uploadCartReceiptImage(
 
   const nextOrder = (existing?.[0]?.sort_order ?? -1) + 1;
 
-  // Store the storage path (not a public URL)
+  // Store the public URL so it's immediately usable
   const { data: imageRow, error: insertError } = await supabase
     .from("cart_receipt_images")
     .insert({
       cart_id: cartId,
-      image_url: result.path,
+      image_url: result.url,
       sort_order: nextOrder,
     })
     .select("id")
@@ -136,11 +123,7 @@ export async function uploadCartReceiptImage(
     return { error: insertError.message };
   }
 
-  // Generate a signed URL for immediate display
-  const signedUrls = await getReceiptSignedUrls([result.path]);
-  const signedUrl = signedUrls[result.path] ?? "";
-
-  return { id: imageRow.id, signed_url: signedUrl };
+  return { id: imageRow.id, signed_url: result.url };
 }
 
 export async function deleteCartReceiptImage(

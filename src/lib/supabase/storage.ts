@@ -5,7 +5,7 @@ const RECEIPTS_BUCKET = "receipts";
 export async function uploadReceiptImage(
   file: File,
   userId: string,
-): Promise<{ path: string } | { error: string }> {
+): Promise<{ path: string; url: string } | { error: string }> {
   const supabase = await createServerSupabaseClient();
 
   const fileExt = file.name.split(".").pop();
@@ -22,44 +22,18 @@ export async function uploadReceiptImage(
     return { error: error.message };
   }
 
-  return { path: filePath };
+  const {
+    data: { publicUrl },
+  } = supabase.storage.from(RECEIPTS_BUCKET).getPublicUrl(filePath);
+
+  return { path: filePath, url: publicUrl };
 }
 
-export async function getReceiptSignedUrl(
-  path: string,
-  expiresInSeconds = 3600,
-): Promise<string | null> {
-  const supabase = await createServerSupabaseClient();
+export function getReceiptPublicUrl(path: string): string {
+  // path can be a full URL already (legacy rows) — return as-is
+  if (path.startsWith("https://")) return path;
 
-  const { data, error } = await supabase.storage
-    .from(RECEIPTS_BUCKET)
-    .createSignedUrl(path, expiresInSeconds);
-
-  if (error || !data) return null;
-  return data.signedUrl;
-}
-
-export async function getReceiptSignedUrls(
-  paths: string[],
-  expiresInSeconds = 3600,
-): Promise<Record<string, string>> {
-  if (paths.length === 0) return {};
-
-  const supabase = await createServerSupabaseClient();
-
-  const { data, error } = await supabase.storage
-    .from(RECEIPTS_BUCKET)
-    .createSignedUrls(paths, expiresInSeconds);
-
-  if (error || !data) return {};
-
-  // Use index to map input paths → signed URLs (item.path can be null/mismatched)
-  const result: Record<string, string> = {};
-  for (let i = 0; i < data.length; i++) {
-    const signedUrl = data[i]?.signedUrl;
-    if (signedUrl && paths[i]) {
-      result[paths[i]] = signedUrl;
-    }
-  }
-  return result;
+  // Construct the public URL directly without an API call
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  return `${supabaseUrl}/storage/v1/object/public/${RECEIPTS_BUCKET}/${path}`;
 }
