@@ -40,10 +40,17 @@ export default async function CartDetailRoute({
     .eq("cart_id", id)
     .order("created_at", { ascending: true });
 
+  const { data: receiptImages } = await supabase
+    .from("cart_receipt_images")
+    .select("id, cart_id, image_url, sort_order, created_at")
+    .eq("cart_id", id)
+    .order("sort_order", { ascending: true });
+
   return (
     <CartDetailView
       cart={cart}
       items={(items ?? []) as never[]}
+      receiptImages={receiptImages ?? []}
     />
   );
 }

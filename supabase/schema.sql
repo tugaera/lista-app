@@ -132,6 +132,17 @@ create table shopping_cart_items (
 
 create index idx_shopping_cart_items_cart on shopping_cart_items (cart_id);
 
+-- Cart Receipt Images (multiple photos per cart)
+create table cart_receipt_images (
+  id         uuid primary key default gen_random_uuid(),
+  cart_id    uuid not null references shopping_carts(id) on delete cascade,
+  image_url  text not null,
+  sort_order integer not null default 0,
+  created_at timestamptz not null default now()
+);
+
+create index idx_cart_receipt_images_cart on cart_receipt_images(cart_id);
+
 -- ============================================================
 -- VIEWS
 -- ============================================================
@@ -238,6 +249,7 @@ alter table shopping_lists enable row level security;
 alter table shopping_list_items enable row level security;
 alter table shopping_carts enable row level security;
 alter table shopping_cart_items enable row level security;
+alter table cart_receipt_images enable row level security;
 
 -- Profiles: role-based access (uses get_my_role() to avoid RLS recursion)
 create policy "profiles_select_admin" on profiles
@@ -367,6 +379,22 @@ create policy "shopping_cart_items_update" on shopping_cart_items
   );
 
 create policy "shopping_cart_items_delete" on shopping_cart_items
+  for delete to authenticated using (
+    exists (select 1 from shopping_carts where id = cart_id and user_id = auth.uid())
+  );
+
+-- Cart receipt images: accessible via cart ownership
+create policy "cart_receipt_images_select" on cart_receipt_images
+  for select to authenticated using (
+    exists (select 1 from shopping_carts where id = cart_id and user_id = auth.uid())
+  );
+
+create policy "cart_receipt_images_insert" on cart_receipt_images
+  for insert to authenticated with check (
+    exists (select 1 from shopping_carts where id = cart_id and user_id = auth.uid())
+  );
+
+create policy "cart_receipt_images_delete" on cart_receipt_images
   for delete to authenticated using (
     exists (select 1 from shopping_carts where id = cart_id and user_id = auth.uid())
   );

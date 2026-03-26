@@ -271,6 +271,38 @@ export interface Database {
           },
         ];
       };
+      cart_receipt_images: {
+        Row: {
+          id: string;
+          cart_id: string;
+          image_url: string;
+          sort_order: number;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          cart_id: string;
+          image_url: string;
+          sort_order?: number;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          cart_id?: string;
+          image_url?: string;
+          sort_order?: number;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "cart_receipt_images_cart_id_fkey";
+            columns: ["cart_id"];
+            isOneToOne: false;
+            referencedRelation: "shopping_carts";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       shopping_cart_items: {
         Row: {
           id: string;
@@ -404,5 +436,8 @@ export type ProfileUpdate = TablesUpdate<"profiles">;
 export type Invite = Tables<"invites">;
 export type InviteInsert = TablesInsert<"invites">;
 export type InviteUpdate = TablesUpdate<"invites">;
+
+export type CartReceiptImage = Tables<"cart_receipt_images">;
+export type CartReceiptImageInsert = TablesInsert<"cart_receipt_images">;
 
 export type UserRole = Database["public"]["Enums"]["user_role"];
