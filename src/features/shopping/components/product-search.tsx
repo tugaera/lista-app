@@ -15,6 +15,7 @@ type ProductSearchProps = {
   placeholder?: string;
   value?: string;
   onValueChange?: (value: string) => void;
+  disabled?: boolean;
 };
 
 export function ProductSearch({
@@ -22,6 +23,7 @@ export function ProductSearch({
   placeholder = "Search products...",
   value,
   onValueChange,
+  disabled = false,
 }: ProductSearchProps) {
   const [internalQuery, setInternalQuery] = useState("");
   const query = value !== undefined ? value : internalQuery;
@@ -99,7 +101,8 @@ export function ProductSearch({
         onChange={(e) => setQuery(e.target.value)}
         onFocus={() => results.length > 0 && setIsOpen(true)}
         placeholder={placeholder}
-        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+        disabled={disabled}
+        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-400"
       />
       {isLoading && (
         <div className="absolute right-3 top-1/2 -translate-y-1/2">

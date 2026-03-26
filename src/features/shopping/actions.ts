@@ -275,9 +275,23 @@ export async function getActiveCart(
   return newCart;
 }
 
+export async function updateCartStore(
+  cartId: string,
+  storeId: string | null,
+): Promise<void> {
+  const supabase = await createServerSupabaseClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Not authenticated");
+
+  await supabase
+    .from("shopping_carts")
+    .update({ store_id: storeId })
+    .eq("id", cartId)
+    .eq("user_id", user.id);
+}
+
 export async function finalizeCart(
   cartId: string,
-  storeId?: string,
 ): Promise<{ total: number }> {
   const supabase = await createServerSupabaseClient();
   const {
@@ -289,13 +303,10 @@ export async function finalizeCart(
   // Recalculate total one final time
   await recalculateCartTotal(cartId);
 
-  // Mark as finalized
+  // Mark as finalized (store_id already set on the cart)
   const { data, error } = await supabase
     .from("shopping_carts")
-    .update({
-      finalized_at: new Date().toISOString(),
-      ...(storeId ? { store_id: storeId } : {}),
-    })
+    .update({ finalized_at: new Date().toISOString() })
     .eq("id", cartId)
     .eq("user_id", user.id)
     .select("total")

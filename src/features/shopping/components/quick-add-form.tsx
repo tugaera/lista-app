@@ -7,7 +7,7 @@ import { ProductSearch, type ProductResult } from "./product-search";
 
 type QuickAddFormProps = {
   cartId: string;
-  stores: { id: string; name: string }[];
+  storeId: string;        // store belongs to the cart, not per-product
   onItemAdded: (item: CartItemDisplay) => void;
   scannedBarcode?: string;
   onBarcodeClear?: () => void;
@@ -15,7 +15,7 @@ type QuickAddFormProps = {
 
 export function QuickAddForm({
   cartId,
-  stores,
+  storeId,
   onItemAdded,
   scannedBarcode,
   onBarcodeClear,
@@ -23,7 +23,6 @@ export function QuickAddForm({
   const [productName, setProductName] = useState("");
   const [price, setPrice] = useState("");
   const [quantity, setQuantity] = useState("1");
-  const [storeId, setStoreId] = useState(stores[0]?.id ?? "");
   const [barcode, setBarcode] = useState<string | undefined>();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -43,30 +42,27 @@ export function QuickAddForm({
         const { createBrowserSupabaseClient } = await import("@/lib/supabase/client");
         const supabase = createBrowserSupabaseClient();
 
-        // Look up product by barcode
+        // Look up product by barcode in our DB first
         const { data: product } = await supabase
           .from("products")
           .select("id, name")
           .eq("barcode", scannedBarcode!)
+          .eq("is_active", true)
           .single();
 
         if (product) {
           setProductName(product.name);
 
-          // Get latest price
+          // Get latest price from any store
           const { data: entry } = await supabase
             .from("product_entries")
-            .select("price, store_id")
+            .select("price")
             .eq("product_id", product.id)
             .order("created_at", { ascending: false })
             .limit(1)
             .single();
 
-          if (entry) {
-            setPrice(entry.price.toFixed(2));
-            if (entry.store_id) setStoreId(entry.store_id);
-          }
-
+          if (entry) setPrice(entry.price.toFixed(2));
           setBarcodeStatus(`Found: ${product.name}`);
         } else {
           // Not in our DB — try Open Food Facts API
@@ -112,7 +108,6 @@ export function QuickAddForm({
     if (product.lastPrice != null) {
       setPrice(product.lastPrice.toFixed(2));
     }
-    // Focus price input after selection
     setTimeout(() => {
       const priceInput = formRef.current?.querySelector<HTMLInputElement>('input[placeholder="Price"]');
       priceInput?.focus();
@@ -123,8 +118,13 @@ export function QuickAddForm({
     e.preventDefault();
     setError(null);
 
+    if (!storeId) {
+      setError("Select a store in the header first");
+      return;
+    }
+
     const parsedPrice = parseFloat(price);
-    const parsedQuantity = parseInt(quantity, 10);
+    const parsedQuantity = parseFloat(quantity);
 
     if (!productName.trim()) {
       setError("Product name is required");
@@ -136,10 +136,6 @@ export function QuickAddForm({
     }
     if (isNaN(parsedQuantity) || parsedQuantity <= 0) {
       setError("Enter a valid quantity");
-      return;
-    }
-    if (!storeId) {
-      setError("Select a store");
       return;
     }
 
@@ -161,25 +157,22 @@ export function QuickAddForm({
         lastScannedRef.current = undefined;
         onBarcodeClear?.();
       } catch (err) {
-        setError(
-          err instanceof Error ? err.message : "Failed to add item",
-        );
+        setError(err instanceof Error ? err.message : "Failed to add item");
       }
     });
   }
 
+  const disabled = !storeId;
+
   return (
     <div className="fixed bottom-16 left-0 right-0 z-50 border-t border-gray-200 bg-white pb-safe lg:bottom-0">
-      <form
-        ref={formRef}
-        onSubmit={handleSubmit}
-        className="mx-auto max-w-lg px-4 py-3"
-      >
+      <form ref={formRef} onSubmit={handleSubmit} className="mx-auto max-w-lg px-4 py-3">
         {barcodeStatus && (
           <p className="mb-2 text-xs font-medium text-emerald-600">{barcodeStatus}</p>
         )}
-        {error && (
-          <p className="mb-2 text-xs text-red-600">{error}</p>
+        {error && <p className="mb-2 text-xs text-red-600">{error}</p>}
+        {disabled && (
+          <p className="mb-2 text-xs text-amber-600">⚠ Select a store above to start adding items</p>
         )}
         <div className="mb-2">
           <ProductSearch
@@ -187,6 +180,7 @@ export function QuickAddForm({
             placeholder="Product name (search or type new)"
             value={productName}
             onValueChange={setProductName}
+            disabled={disabled}
           />
         </div>
         <div className="flex gap-2">
@@ -198,31 +192,23 @@ export function QuickAddForm({
             value={price}
             onChange={(e) => setPrice(e.target.value)}
             placeholder="Price"
-            className="w-24 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            disabled={disabled}
+            className="w-24 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-400"
           />
           <input
             type="number"
-            inputMode="numeric"
-            min="1"
+            inputMode="decimal"
+            step="0.001"
+            min="0.001"
             value={quantity}
             onChange={(e) => setQuantity(e.target.value)}
             placeholder="Qty"
-            className="w-16 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            disabled={disabled}
+            className="w-16 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-400"
           />
-          <select
-            value={storeId}
-            onChange={(e) => setStoreId(e.target.value)}
-            className="min-w-0 flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-          >
-            {stores.map((store) => (
-              <option key={store.id} value={store.id}>
-                {store.name}
-              </option>
-            ))}
-          </select>
           <button
             type="submit"
-            disabled={isPending}
+            disabled={isPending || disabled}
             className="flex-shrink-0 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
           >
             {isPending ? "..." : "Add"}

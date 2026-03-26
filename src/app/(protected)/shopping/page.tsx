@@ -11,19 +11,22 @@ export default async function ShoppingRoute() {
 
   if (!user) redirect("/auth/login");
 
-  // Get or create active cart
+  // Get or create active cart (include store_id)
   const { data: existingCart } = await supabase
     .from("shopping_carts")
-    .select("id")
+    .select("id, store_id")
     .eq("user_id", user.id)
+    .is("finalized_at", null)
     .order("created_at", { ascending: false })
     .limit(1)
     .single();
 
   let cartId: string;
+  let cartStoreId: string | null = null;
 
   if (existingCart) {
     cartId = existingCart.id;
+    cartStoreId = existingCart.store_id;
   } else {
     const { data: newCart } = await supabase
       .from("shopping_carts")
@@ -34,20 +37,21 @@ export default async function ShoppingRoute() {
     cartId = newCart!.id;
   }
 
-  // Fetch cart items using the shared action
-  const items = await getCartItems(cartId);
-
-  // Fetch stores
-  const { data: stores } = await supabase
-    .from("stores")
-    .select("id, name")
-    .order("name");
+  const [items, storesResult] = await Promise.all([
+    getCartItems(cartId),
+    supabase
+      .from("stores")
+      .select("id, name, is_active")
+      .eq("is_active", true)
+      .order("name"),
+  ]);
 
   return (
     <ShoppingPage
       cartId={cartId}
+      initialStoreId={cartStoreId}
       initialItems={items}
-      stores={stores ?? []}
+      stores={storesResult.data ?? []}
     />
   );
 }

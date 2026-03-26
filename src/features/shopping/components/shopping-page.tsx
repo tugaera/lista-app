@@ -3,47 +3,45 @@
 import { useCallback, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { CartItemDisplay } from "@/features/shopping/actions";
-import { finalizeCart } from "@/features/shopping/actions";
+import { finalizeCart, updateCartStore } from "@/features/shopping/actions";
 import { CartItemList } from "./cart-item-list";
 import { QuickAddForm } from "./quick-add-form";
 import { BarcodeScanner } from "./barcode-scanner";
 
+type Store = { id: string; name: string; is_active?: boolean };
+
 type ShoppingPageProps = {
   cartId: string;
+  initialStoreId: string | null;
   initialItems: CartItemDisplay[];
-  stores: { id: string; name: string; is_active?: boolean }[];
+  stores: Store[];
 };
 
 export function ShoppingPage({
   cartId,
+  initialStoreId,
   initialItems,
   stores,
 }: ShoppingPageProps) {
   const router = useRouter();
   const [items, setItems] = useState<CartItemDisplay[]>(initialItems);
+  const [storeId, setStoreId] = useState<string>(initialStoreId ?? "");
   const [showScanner, setShowScanner] = useState(false);
   const [scannedBarcode, setScannedBarcode] = useState<string | undefined>();
   const [showCheckout, setShowCheckout] = useState(false);
-  const [checkoutStoreId, setCheckoutStoreId] = useState("");
   const [isCheckingOut, startCheckout] = useTransition();
-  const [checkoutDone, setCheckoutDone] = useState<{ total: number } | null>(null);
+  const [checkoutDone, setCheckoutDone] = useState<{ total: number; storeName?: string } | null>(null);
 
-  const handleItemAdded = useCallback(
-    (item: CartItemDisplay) => {
-      setItems((prev) => {
-        // If merged, replace existing item with updated quantity
-        if (item.merged) {
-          const exists = prev.find((i) => i.id === item.id);
-          if (exists) {
-            return prev.map((i) => (i.id === item.id ? { ...item } : i));
-          }
-        }
-        return [...prev, item];
-      });
-      setScannedBarcode(undefined);
-    },
-    [],
-  );
+  const handleItemAdded = useCallback((item: CartItemDisplay) => {
+    setItems((prev) => {
+      if (item.merged) {
+        const exists = prev.find((i) => i.id === item.id);
+        if (exists) return prev.map((i) => (i.id === item.id ? { ...item } : i));
+      }
+      return [...prev, item];
+    });
+    setScannedBarcode(undefined);
+  }, []);
 
   const handleItemRemoved = useCallback((itemId: string) => {
     setItems((prev) => prev.filter((i) => i.id !== itemId));
@@ -52,12 +50,15 @@ export function ShoppingPage({
   const handleItemUpdated = useCallback((itemId: string, newQuantity: number) => {
     setItems((prev) =>
       prev.map((i) =>
-        i.id === itemId
-          ? { ...i, quantity: newQuantity, subtotal: i.price * newQuantity }
-          : i,
+        i.id === itemId ? { ...i, quantity: newQuantity, subtotal: i.price * newQuantity } : i,
       ),
     );
   }, []);
+
+  async function handleStoreChange(newStoreId: string) {
+    setStoreId(newStoreId);
+    await updateCartStore(cartId, newStoreId || null);
+  }
 
   function handleBarcodeScan(barcode: string) {
     setScannedBarcode(barcode);
@@ -66,10 +67,11 @@ export function ShoppingPage({
 
   function handleCheckout() {
     setShowCheckout(false);
+    const storeName = stores.find((s) => s.id === storeId)?.name;
     startCheckout(async () => {
       try {
-        const result = await finalizeCart(cartId, checkoutStoreId || undefined);
-        setCheckoutDone(result);
+        const result = await finalizeCart(cartId);
+        setCheckoutDone({ ...result, storeName });
       } catch {
         // Error finalizing
       }
@@ -83,8 +85,9 @@ export function ShoppingPage({
   }
 
   const total = items.reduce((sum, item) => sum + item.subtotal, 0);
+  const selectedStore = stores.find((s) => s.id === storeId);
 
-  // Checkout success screen
+  // ── Checkout success screen ───────────────────────────────────────────────
   if (checkoutDone) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50 px-4">
@@ -94,9 +97,12 @@ export function ShoppingPage({
               <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
             </svg>
           </div>
-          <h2 className="mb-2 text-xl font-bold text-gray-900">Shopping Complete!</h2>
-          <p className="mb-1 text-3xl font-bold text-emerald-600">
-            ${checkoutDone.total.toFixed(2)}
+          <h2 className="mb-1 text-xl font-bold text-gray-900">Shopping Complete!</h2>
+          {checkoutDone.storeName && (
+            <p className="mb-2 text-sm font-medium text-emerald-600">{checkoutDone.storeName}</p>
+          )}
+          <p className="mb-1 text-3xl font-bold text-gray-900">
+            €{checkoutDone.total.toFixed(2)}
           </p>
           <p className="mb-6 text-sm text-gray-500">
             {items.length} {items.length === 1 ? "item" : "items"} saved to history
@@ -120,31 +126,48 @@ export function ShoppingPage({
     );
   }
 
+  // ── Main shopping view ────────────────────────────────────────────────────
   return (
     <div className="flex min-h-screen flex-col bg-gray-50">
       {/* Header */}
       <header className="sticky top-0 z-30 border-b border-gray-200 bg-white px-4 py-3">
-        <div className="mx-auto flex max-w-lg items-center justify-between">
-          <h1 className="text-lg font-semibold text-gray-900">Shopping</h1>
-          <div className="flex items-center gap-3">
-            {items.length > 0 && (
-              <>
-                <span className="text-sm font-medium text-gray-600">
-                  ${total.toFixed(2)}
-                </span>
-                <button
-                  onClick={() => setShowCheckout(true)}
-                  disabled={isCheckingOut}
-                  className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
-                >
-                  {isCheckingOut ? "..." : "Checkout"}
-                </button>
-              </>
-            )}
-            <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
-              {items.length} {items.length === 1 ? "item" : "items"}
-            </span>
-          </div>
+        <div className="mx-auto flex max-w-lg items-center gap-3">
+          {/* Store selector */}
+          <select
+            value={storeId}
+            onChange={(e) => handleStoreChange(e.target.value)}
+            className={`min-w-0 flex-1 rounded-lg border px-3 py-1.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/20 ${
+              storeId
+                ? "border-emerald-200 bg-emerald-50 text-emerald-800 focus:border-emerald-400"
+                : "border-amber-200 bg-amber-50 text-amber-700 focus:border-amber-400"
+            }`}
+          >
+            <option value="">Select store…</option>
+            {stores.map((s) => (
+              <option key={s.id} value={s.id}>{s.name}</option>
+            ))}
+          </select>
+
+          {/* Total + checkout */}
+          {items.length > 0 && (
+            <>
+              <span className="shrink-0 text-sm font-semibold text-gray-700">
+                €{total.toFixed(2)}
+              </span>
+              <button
+                onClick={() => setShowCheckout(true)}
+                disabled={isCheckingOut}
+                className="shrink-0 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+              >
+                {isCheckingOut ? "…" : "Checkout"}
+              </button>
+            </>
+          )}
+
+          {/* Item count */}
+          <span className="shrink-0 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
+            {items.length}
+          </span>
         </div>
       </header>
 
@@ -165,19 +188,8 @@ export function ShoppingPage({
         className="fixed right-4 top-16 z-30 rounded-full bg-blue-600 p-3 text-white shadow-lg transition-transform hover:scale-105 hover:bg-blue-700 active:scale-95"
         aria-label="Scan barcode"
       >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          className="h-5 w-5"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          strokeWidth={2}
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"
-          />
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
         </svg>
       </button>
 
@@ -189,11 +201,7 @@ export function ShoppingPage({
               <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
             </svg>
             <span>{scannedBarcode}</span>
-            <button
-              type="button"
-              onClick={() => setScannedBarcode(undefined)}
-              className="ml-1 rounded p-0.5 hover:bg-white/20"
-            >
+            <button type="button" onClick={() => setScannedBarcode(undefined)} className="ml-1 rounded p-0.5 hover:bg-white/20">
               <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
               </svg>
@@ -202,10 +210,10 @@ export function ShoppingPage({
         </div>
       )}
 
-      {/* Quick-add form */}
+      {/* Quick-add form (no store selector — taken from header) */}
       <QuickAddForm
         cartId={cartId}
-        stores={stores}
+        storeId={storeId}
         onItemAdded={handleItemAdded}
         scannedBarcode={scannedBarcode}
         onBarcodeClear={() => setScannedBarcode(undefined)}
@@ -213,10 +221,7 @@ export function ShoppingPage({
 
       {/* Barcode scanner modal */}
       {showScanner && (
-        <BarcodeScanner
-          onScan={handleBarcodeScan}
-          onClose={() => setShowScanner(false)}
-        />
+        <BarcodeScanner onScan={handleBarcodeScan} onClose={() => setShowScanner(false)} />
       )}
 
       {/* Checkout confirmation */}
@@ -224,28 +229,13 @@ export function ShoppingPage({
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-4">
           <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
             <h3 className="mb-1 text-lg font-semibold text-gray-900">Finish shopping?</h3>
-            <p className="mb-4 text-sm text-gray-500">
-              {items.length} {items.length === 1 ? "item" : "items"} · total{" "}
-              <span className="font-semibold text-emerald-600">${total.toFixed(2)}</span>
+            <p className="mb-1 text-sm text-gray-500">
+              {items.length} {items.length === 1 ? "item" : "items"} ·{" "}
+              <span className="font-semibold text-gray-700">€{total.toFixed(2)}</span>
             </p>
-
-            {/* Store selector */}
-            <div className="mb-5">
-              <label className="mb-1 block text-sm font-medium text-gray-700">
-                Store <span className="text-gray-400">(optional)</span>
-              </label>
-              <select
-                value={checkoutStoreId}
-                onChange={(e) => setCheckoutStoreId(e.target.value)}
-                className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
-              >
-                <option value="">Select store…</option>
-                {stores.filter((s) => s.is_active !== false).map((s) => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
-                ))}
-              </select>
-            </div>
-
+            {selectedStore && (
+              <p className="mb-4 text-sm font-medium text-emerald-600">{selectedStore.name}</p>
+            )}
             <div className="flex gap-3">
               <button
                 type="button"
