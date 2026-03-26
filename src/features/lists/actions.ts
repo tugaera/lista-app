@@ -258,6 +258,29 @@ export async function convertListToCart(listId: string) {
   return { cartId: cart.id };
 }
 
+/** Lightweight list fetch for dropdowns (id, name, item count only) */
+export async function getListsPreview(): Promise<{
+  lists: { id: string; name: string; item_count: number }[];
+}> {
+  const supabase = await createServerSupabaseClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect("/auth/login");
+
+  const { data } = await supabase
+    .from("shopping_lists")
+    .select("id, name, shopping_list_items(count)")
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: false });
+
+  return {
+    lists: (data ?? []).map((l) => ({
+      id: l.id,
+      name: l.name,
+      item_count: (l.shopping_list_items as unknown as { count: number }[])?.[0]?.count ?? 0,
+    })),
+  };
+}
+
 export async function getLists() {
   const supabase = await createServerSupabaseClient();
   const {

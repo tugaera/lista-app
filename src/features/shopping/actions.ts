@@ -4,6 +4,7 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 export type CartItemDisplay = {
   id: string;
+  productId: string;
   productName: string;
   price: number;
   quantity: number;
@@ -139,6 +140,7 @@ export async function addCartItem(
 
       return {
         id: existingItem.id,
+        productId,
         productName: data.productName,
         price: data.price,
         quantity: newQuantity,
@@ -191,6 +193,7 @@ export async function addCartItem(
 
   return {
     id: cartItem.id,
+    productId,
     productName: data.productName,
     price: data.price,
     quantity: data.quantity,
@@ -332,6 +335,7 @@ export async function getCartItems(
         id,
         price,
         quantity,
+        product_id,
         products ( name ),
         stores ( name )
       )
@@ -347,12 +351,14 @@ export async function getCartItems(
       id: string;
       price: number;
       quantity: number;
+      product_id: string;
       products: { name: string };
       stores: { name: string };
     };
 
     return {
       id: item.id,
+      productId: entry.product_id,
       productName: entry.products.name,
       price: entry.price,
       quantity: item.quantity,
