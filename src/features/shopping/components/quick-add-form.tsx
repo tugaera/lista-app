@@ -79,7 +79,7 @@ export function QuickAddForm({
   }
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-gray-200 bg-white pb-safe">
+    <div className="fixed bottom-16 left-0 right-0 z-50 border-t border-gray-200 bg-white pb-safe lg:bottom-0">
       <form
         ref={formRef}
         onSubmit={handleSubmit}
