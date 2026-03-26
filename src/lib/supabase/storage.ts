@@ -53,10 +53,12 @@ export async function getReceiptSignedUrls(
 
   if (error || !data) return {};
 
+  // Use index to map input paths → signed URLs (item.path can be null/mismatched)
   const result: Record<string, string> = {};
-  for (const item of data) {
-    if (item.signedUrl && item.path) {
-      result[item.path] = item.signedUrl;
+  for (let i = 0; i < data.length; i++) {
+    const signedUrl = data[i]?.signedUrl;
+    if (signedUrl && paths[i]) {
+      result[paths[i]] = signedUrl;
     }
   }
   return result;

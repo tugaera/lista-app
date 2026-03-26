@@ -42,15 +42,24 @@ export async function getCartReceiptImages(
   const rows = data ?? [];
   if (rows.length === 0) return { images: [] };
 
-  // image_url stores the storage path (e.g. "userId/timestamp-uuid.jpg")
-  const paths = rows.map((r) => r.image_url);
+  // image_url may be a storage path ("userId/file.jpg") or a legacy full URL.
+  // Extract the storage path in both cases so createSignedUrls works.
+  function toStoragePath(value: string): string {
+    // Full Supabase Storage URL → extract path after "/object/public/receipts/" or "/object/sign/receipts/"
+    const match = value.match(/\/object\/(?:public|sign)\/receipts\/(.+?)(?:\?|$)/);
+    if (match) return match[1];
+    // Already a path
+    return value;
+  }
+
+  const paths = rows.map((r) => toStoragePath(r.image_url));
   const signedUrls = await getReceiptSignedUrls(paths);
 
-  const images: ReceiptImageWithUrl[] = rows.map((row) => ({
+  const images: ReceiptImageWithUrl[] = rows.map((row, i) => ({
     id: row.id,
     cart_id: row.cart_id,
-    image_path: row.image_url,
-    signed_url: signedUrls[row.image_url] ?? "",
+    image_path: paths[i],
+    signed_url: signedUrls[paths[i]] ?? "",
     sort_order: row.sort_order,
     created_at: row.created_at,
   }));
