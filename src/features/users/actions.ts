@@ -21,7 +21,9 @@ export async function getCurrentUserProfile(): Promise<Profile | null> {
   return data;
 }
 
-export async function getUsers(): Promise<{ users: Profile[]; error?: string }> {
+export type UserWithInviter = Profile & { inviter_email?: string };
+
+export async function getUsers(): Promise<{ users: UserWithInviter[]; error?: string }> {
   const supabase = await createServerSupabaseClient();
   const {
     data: { user },
@@ -41,7 +43,17 @@ export async function getUsers(): Promise<{ users: Profile[]; error?: string }> 
     return { users: [], error: error.message };
   }
 
-  return { users: data ?? [] };
+  const profiles = data ?? [];
+
+  // Build a map of id -> email for resolving invited_by
+  const emailMap = new Map(profiles.map((p) => [p.id, p.email]));
+
+  const usersWithInviter: UserWithInviter[] = profiles.map((p) => ({
+    ...p,
+    inviter_email: p.invited_by ? emailMap.get(p.invited_by) ?? undefined : undefined,
+  }));
+
+  return { users: usersWithInviter };
 }
 
 export async function createInvite(
@@ -103,6 +115,31 @@ export async function createInvite(
   }
 
   return { error: "", invite: data };
+}
+
+export async function deleteInvite(inviteId: string): Promise<{ error?: string }> {
+  const supabase = await createServerSupabaseClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { error: "Not authenticated" };
+  }
+
+  // Only delete unused invites that belong to the caller
+  const { error } = await supabase
+    .from("invites")
+    .delete()
+    .eq("id", inviteId)
+    .eq("created_by", user.id)
+    .is("used_by", null);
+
+  if (error) {
+    return { error: error.message };
+  }
+
+  return {};
 }
 
 export async function getMyInvites(): Promise<{ invites: Invite[]; error?: string }> {

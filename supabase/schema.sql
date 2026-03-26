@@ -273,6 +273,11 @@ create policy "invites_insert" on invites
     and public.get_my_role() in ('admin', 'moderator')
   );
 
+-- Creator can delete their own unused invites
+create policy "invites_delete_own" on invites
+  for delete to authenticated
+  using (created_by = auth.uid() and used_by is null);
+
 -- Categories: readable by all authenticated users
 create policy "categories_select" on categories
   for select to authenticated using (true);

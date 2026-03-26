@@ -3,10 +3,10 @@
 import { useState, useTransition } from "react";
 import { Card } from "@/components/ui/card";
 import { useUser } from "./user-provider";
-import { updateUserRole } from "@/features/users/actions";
-import type { Profile, UserRole } from "@/types/database";
+import { updateUserRole, type UserWithInviter } from "@/features/users/actions";
+import type { UserRole } from "@/types/database";
 
-export function UserList({ users: initialUsers }: { users: Profile[] }) {
+export function UserList({ users: initialUsers }: { users: UserWithInviter[] }) {
   const { isAdmin, profile: currentUser } = useUser();
   const [users, setUsers] = useState(initialUsers);
   const [isPending, startTransition] = useTransition();
@@ -65,6 +65,9 @@ export function UserList({ users: initialUsers }: { users: Profile[] }) {
                 </p>
                 <p className="text-xs text-gray-500">
                   Joined {new Date(user.created_at).toLocaleDateString()}
+                  {user.inviter_email && (
+                    <> &middot; Invited by <span className="font-medium">{user.inviter_email}</span></>
+                  )}
                 </p>
                 {feedback?.id === user.id && (
                   <p className={`text-xs ${feedback.message === "Role updated" ? "text-emerald-600" : "text-red-600"}`}>

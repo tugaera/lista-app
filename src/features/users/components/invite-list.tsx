@@ -1,6 +1,9 @@
 "use client";
 
+import { useState, useTransition } from "react";
 import { Card } from "@/components/ui/card";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { deleteInvite } from "@/features/users/actions";
 import type { Invite } from "@/types/database";
 
 function getStatus(invite: Invite): { label: string; color: string } {
@@ -13,7 +16,29 @@ function getStatus(invite: Invite): { label: string; color: string } {
   return { label: "Available", color: "text-emerald-600 bg-emerald-50" };
 }
 
-export function InviteList({ invites }: { invites: Invite[] }) {
+function canDelete(invite: Invite): boolean {
+  return !invite.used_by;
+}
+
+export function InviteList({ invites: initialInvites }: { invites: Invite[] }) {
+  const [invites, setInvites] = useState(initialInvites);
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+
+  function handleDelete() {
+    if (!deleteConfirm) return;
+    const inviteId = deleteConfirm;
+
+    setInvites((prev) => prev.filter((i) => i.id !== inviteId));
+    setDeleteConfirm(null);
+
+    startTransition(async () => {
+      await deleteInvite(inviteId);
+    });
+  }
+
+  const deleteTarget = invites.find((i) => i.id === deleteConfirm);
+
   if (invites.length === 0) {
     return (
       <Card>
@@ -48,15 +73,39 @@ export function InviteList({ invites }: { invites: Invite[] }) {
                   )}
                 </p>
               </div>
-              <span
-                className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${status.color}`}
-              >
-                {status.label}
-              </span>
+              <div className="flex items-center gap-2">
+                <span
+                  className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${status.color}`}
+                >
+                  {status.label}
+                </span>
+                {canDelete(invite) && (
+                  <button
+                    type="button"
+                    onClick={() => setDeleteConfirm(invite.id)}
+                    className="rounded-md p-1 text-gray-400 hover:bg-red-50 hover:text-red-500"
+                    aria-label="Delete invite"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  </button>
+                )}
+              </div>
             </div>
           );
         })}
       </div>
+
+      <ConfirmDialog
+        open={deleteConfirm !== null}
+        onClose={() => setDeleteConfirm(null)}
+        onConfirm={handleDelete}
+        title="Delete invite"
+        message={`Delete invite code "${deleteTarget?.code ?? ""}"? This cannot be undone.`}
+        confirmLabel="Delete"
+        loading={isPending}
+      />
     </Card>
   );
 }
