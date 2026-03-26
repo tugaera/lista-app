@@ -1,10 +1,13 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import type { CartItemDisplay } from "@/features/shopping/actions";
+import { finalizeCart } from "@/features/shopping/actions";
 import { CartItemList } from "./cart-item-list";
 import { QuickAddForm } from "./quick-add-form";
 import { BarcodeScanner } from "./barcode-scanner";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 type ShoppingPageProps = {
   cartId: string;
@@ -17,9 +20,13 @@ export function ShoppingPage({
   initialItems,
   stores,
 }: ShoppingPageProps) {
+  const router = useRouter();
   const [items, setItems] = useState<CartItemDisplay[]>(initialItems);
   const [showScanner, setShowScanner] = useState(false);
   const [scannedBarcode, setScannedBarcode] = useState<string | undefined>();
+  const [showCheckout, setShowCheckout] = useState(false);
+  const [isCheckingOut, startCheckout] = useTransition();
+  const [checkoutDone, setCheckoutDone] = useState<{ total: number } | null>(null);
 
   const handleItemAdded = useCallback(
     (item: CartItemDisplay) => {
@@ -57,7 +64,61 @@ export function ShoppingPage({
     setShowScanner(false);
   }
 
+  function handleCheckout() {
+    setShowCheckout(false);
+    startCheckout(async () => {
+      try {
+        const result = await finalizeCart(cartId);
+        setCheckoutDone(result);
+      } catch {
+        // Error finalizing
+      }
+    });
+  }
+
+  function handleNewCart() {
+    setCheckoutDone(null);
+    setItems([]);
+    router.refresh();
+  }
+
   const total = items.reduce((sum, item) => sum + item.subtotal, 0);
+
+  // Checkout success screen
+  if (checkoutDone) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50 px-4">
+        <div className="w-full max-w-sm rounded-2xl bg-white p-8 text-center shadow-sm">
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+          </div>
+          <h2 className="mb-2 text-xl font-bold text-gray-900">Shopping Complete!</h2>
+          <p className="mb-1 text-3xl font-bold text-emerald-600">
+            ${checkoutDone.total.toFixed(2)}
+          </p>
+          <p className="mb-6 text-sm text-gray-500">
+            {items.length} {items.length === 1 ? "item" : "items"} saved to history
+          </p>
+          <div className="flex flex-col gap-3">
+            <button
+              onClick={handleNewCart}
+              className="rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-emerald-700"
+            >
+              New Shopping Trip
+            </button>
+            <button
+              onClick={() => router.push("/history")}
+              className="rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            >
+              View History
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen flex-col bg-gray-50">
@@ -67,9 +128,18 @@ export function ShoppingPage({
           <h1 className="text-lg font-semibold text-gray-900">Shopping</h1>
           <div className="flex items-center gap-3">
             {items.length > 0 && (
-              <span className="text-sm font-medium text-gray-600">
-                ${total.toFixed(2)}
-              </span>
+              <>
+                <span className="text-sm font-medium text-gray-600">
+                  ${total.toFixed(2)}
+                </span>
+                <button
+                  onClick={() => setShowCheckout(true)}
+                  disabled={isCheckingOut}
+                  className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  {isCheckingOut ? "..." : "Checkout"}
+                </button>
+              </>
             )}
             <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
               {items.length} {items.length === 1 ? "item" : "items"}
@@ -148,6 +218,17 @@ export function ShoppingPage({
           onClose={() => setShowScanner(false)}
         />
       )}
+
+      {/* Checkout confirmation */}
+      <ConfirmDialog
+        open={showCheckout}
+        onClose={() => setShowCheckout(false)}
+        onConfirm={handleCheckout}
+        title="Finish shopping?"
+        message={`Complete this shopping trip with ${items.length} ${items.length === 1 ? "item" : "items"} totaling $${total.toFixed(2)}? This will be saved to your history.`}
+        confirmLabel="Checkout"
+        loading={isCheckingOut}
+      />
     </div>
   );
 }

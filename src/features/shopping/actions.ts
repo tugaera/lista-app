@@ -252,11 +252,12 @@ export async function getActiveCart(
 ): Promise<{ id: string; total: number }> {
   const supabase = await createServerSupabaseClient();
 
-  // Get most recent cart
+  // Get most recent non-finalized cart
   const { data: existingCart } = await supabase
     .from("shopping_carts")
     .select("id, total")
     .eq("user_id", userId)
+    .is("finalized_at", null)
     .order("created_at", { ascending: false })
     .limit(1)
     .single();
@@ -276,7 +277,7 @@ export async function getActiveCart(
 
 export async function finalizeCart(
   cartId: string,
-): Promise<{ id: string; total: number }> {
+): Promise<{ total: number }> {
   const supabase = await createServerSupabaseClient();
   const {
     data: { user },
@@ -284,14 +285,20 @@ export async function finalizeCart(
 
   if (!user) throw new Error("Not authenticated");
 
+  // Recalculate total one final time
+  await recalculateCartTotal(cartId);
+
+  // Mark as finalized
   const { data, error } = await supabase
     .from("shopping_carts")
-    .select("id, total")
+    .update({ finalized_at: new Date().toISOString() })
     .eq("id", cartId)
+    .eq("user_id", user.id)
+    .select("total")
     .single();
 
   if (error) throw new Error(`Failed to finalize cart: ${error.message}`);
-  return data;
+  return { total: data.total };
 }
 
 export async function getCartItems(

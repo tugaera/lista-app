@@ -15,9 +15,10 @@ export async function getCartHistory() {
 
   const { data: carts, error } = await supabase
     .from("shopping_carts")
-    .select("id, user_id, total, receipt_image_url, created_at, shopping_cart_items(count)")
+    .select("id, user_id, total, receipt_image_url, finalized_at, created_at, shopping_cart_items(count)")
     .eq("user_id", user.id)
-    .order("created_at", { ascending: false });
+    .not("finalized_at", "is", null)
+    .order("finalized_at", { ascending: false });
 
   if (error) {
     return { error: error.message, carts: [] };

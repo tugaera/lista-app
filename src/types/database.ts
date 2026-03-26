@@ -185,6 +185,7 @@ export interface Database {
           user_id: string;
           total: number;
           receipt_image_url: string | null;
+          finalized_at: string | null;
           created_at: string;
         };
         Insert: {
@@ -192,6 +193,7 @@ export interface Database {
           user_id: string;
           total: number;
           receipt_image_url?: string | null;
+          finalized_at?: string | null;
           created_at?: string;
         };
         Update: {
@@ -199,6 +201,7 @@ export interface Database {
           user_id?: string;
           total?: number;
           receipt_image_url?: string | null;
+          finalized_at?: string | null;
           created_at?: string;
         };
         Relationships: [];

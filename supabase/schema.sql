@@ -113,10 +113,13 @@ create table shopping_carts (
   user_id uuid not null references auth.users(id) on delete cascade,
   total numeric(10, 2) not null default 0,
   receipt_image_url text,
+  finalized_at timestamptz,
   created_at timestamptz not null default now()
 );
 
 create index idx_shopping_carts_user on shopping_carts (user_id, created_at desc);
+create index idx_shopping_carts_active on shopping_carts (user_id, finalized_at)
+  where finalized_at is null;
 
 -- Shopping Cart Items
 create table shopping_cart_items (
