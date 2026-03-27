@@ -24,3 +24,4 @@ npm-debug.log*
 
 # claude
 .claude/
+tsconfig.tsbuildinfo

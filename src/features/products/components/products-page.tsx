@@ -8,6 +8,8 @@ import { Modal } from "@/components/ui/modal";
 import { Spinner } from "@/components/ui/spinner";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useDebounce } from "@/hooks/useDebounce";
+import { BarcodeScanner } from "@/features/shopping/components/barcode-scanner";
+import { lookupBarcode } from "@/lib/barcode-lookup";
 import {
   searchProducts,
   createProduct,
@@ -33,6 +35,8 @@ export function ProductsPage({ categories }: ProductsPageProps) {
   const [addOpen, setAddOpen] = useState(false);
   const [addLoading, setAddLoading] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
+  const [addScanning, setAddScanning] = useState(false);
+  const [addLookupStatus, setAddLookupStatus] = useState<string | null>(null);
 
   // Add product form state
   const [newName, setNewName] = useState("");
@@ -87,11 +91,28 @@ export function ProductsPage({ categories }: ProductsPageProps) {
     setNewName("");
     setNewBarcode("");
     setNewCategoryId("");
+    setAddLookupStatus(null);
     setAddLoading(false);
 
     // Refresh search results
     if (debouncedQuery.length >= 2 || debouncedQuery.length === 0) {
       doSearch(debouncedQuery);
+    }
+  }
+
+  async function handleBarcodeScan(barcode: string) {
+    setAddScanning(false);
+    setNewBarcode(barcode);
+    setAddLookupStatus("Looking up barcode…");
+    const result = await lookupBarcode(barcode);
+    if (result.found) {
+      setNewName(result.name);
+      setAddLookupStatus(`Already in DB: "${result.name}"`);
+    } else if (result.name) {
+      setNewName(result.name);
+      setAddLookupStatus(`Found on Open Food Facts: "${result.name}"`);
+    } else {
+      setAddLookupStatus("Product not found — enter the name below");
     }
   }
 
@@ -182,18 +203,31 @@ export function ProductsPage({ categories }: ProductsPageProps) {
                     </span>
                   )}
                 </div>
-                {product.latest_price !== null && (
-                  <div className="mt-3 flex items-center justify-between border-t border-gray-50 pt-2">
-                    <span className="text-lg font-semibold text-emerald-600">
-                      ${product.latest_price.toFixed(2)}
-                    </span>
-                    {product.latest_store_name && (
-                      <span className="text-xs text-gray-400">
-                        at {product.latest_store_name}
-                      </span>
-                    )}
-                  </div>
-                )}
+                {product.latest_price !== null && (() => {
+                  const hasDiscount = product.latest_original_price != null && product.latest_original_price > product.latest_price;
+                  return (
+                    <div className="mt-3 flex items-center justify-between border-t border-gray-50 pt-2">
+                      <div className="flex items-center gap-1.5">
+                        {hasDiscount && (
+                          <span className="text-sm text-gray-400 line-through">€{product.latest_original_price!.toFixed(2)}</span>
+                        )}
+                        <span className={`text-lg font-semibold ${hasDiscount ? "text-orange-600" : "text-emerald-600"}`}>
+                          €{product.latest_price.toFixed(2)}
+                        </span>
+                        {hasDiscount && (
+                          <span className="rounded bg-orange-100 px-1 py-0.5 text-xs font-medium text-orange-700">
+                            −{Math.round((1 - product.latest_price / product.latest_original_price!) * 100)}%
+                          </span>
+                        )}
+                      </div>
+                      {product.latest_store_name && (
+                        <span className="text-xs text-gray-400">
+                          at {product.latest_store_name}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })()}
               </button>
             </Card>
           ))}
@@ -241,29 +275,37 @@ export function ProductsPage({ categories }: ProductsPageProps) {
               <p className="text-sm text-gray-400">No price entries yet.</p>
             ) : (
               <div className="max-h-64 space-y-2 overflow-y-auto">
-                {selectedProduct.entries.map((entry) => (
-                  <div
-                    key={entry.id}
-                    className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2"
-                  >
-                    <div>
-                      <span className="font-medium text-gray-900">
-                        ${entry.price.toFixed(2)}
-                      </span>
-                      <span className="ml-2 text-sm text-gray-500">
-                        x{entry.quantity}
-                      </span>
+                {selectedProduct.entries.map((entry) => {
+                  const orig = entry.original_price;
+                  const hasDiscount = orig != null && orig > entry.price;
+                  return (
+                    <div
+                      key={entry.id}
+                      className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2"
+                    >
+                      <div>
+                        {hasDiscount ? (
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-sm text-gray-400 line-through">€{orig!.toFixed(2)}</span>
+                            <span className="font-medium text-orange-600">€{entry.price.toFixed(2)}</span>
+                            <span className="rounded bg-orange-100 px-1 py-0.5 text-xs font-medium text-orange-700">
+                              −{Math.round((1 - entry.price / orig!) * 100)}%
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="font-medium text-gray-900">€{entry.price.toFixed(2)}</span>
+                        )}
+                        <span className="ml-1 text-sm text-gray-500">x{entry.quantity}</span>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm text-gray-600">{entry.store_name}</p>
+                        <p className="text-xs text-gray-400">
+                          {new Date(entry.created_at).toLocaleDateString()}
+                        </p>
+                      </div>
                     </div>
-                    <div className="text-right">
-                      <p className="text-sm text-gray-600">
-                        {entry.store_name}
-                      </p>
-                      <p className="text-xs text-gray-400">
-                        {new Date(entry.created_at).toLocaleDateString()}
-                      </p>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -271,27 +313,64 @@ export function ProductsPage({ categories }: ProductsPageProps) {
       </Modal>
 
       {/* Add Product Modal */}
+      {addScanning && (
+        <BarcodeScanner
+          onScan={handleBarcodeScan}
+          onClose={() => setAddScanning(false)}
+        />
+      )}
       <Modal
         open={addOpen}
         onClose={() => {
           setAddOpen(false);
           setAddError(null);
+          setAddLookupStatus(null);
         }}
         title="Add Product"
       >
         <div className="space-y-4">
+          {/* Barcode first so scanning auto-fills name */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-medium text-gray-700">
+              Barcode{" "}
+              <span className="font-normal text-gray-400">(scan to auto-fill name)</span>
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={newBarcode}
+                onChange={(e) => setNewBarcode(e.target.value)}
+                placeholder="Optional"
+                className="min-w-0 flex-1 rounded-xl border border-gray-300 px-4 py-2 font-mono text-sm text-gray-900 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+              />
+              <button
+                type="button"
+                onClick={() => setAddScanning(true)}
+                className="flex items-center gap-1.5 rounded-xl border border-gray-300 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4">
+                  <path strokeLinecap="round" strokeLinejoin="round"
+                    d="M3 9V5a2 2 0 012-2h2M3 15v4a2 2 0 002 2h2M15 3h4a2 2 0 012 2v4M15 21h4a2 2 0 002-2v-4" />
+                  <line x1="7" y1="8" x2="7" y2="16" />
+                  <line x1="10" y1="8" x2="10" y2="16" />
+                  <line x1="13" y1="8" x2="13" y2="16" />
+                  <line x1="16" y1="8" x2="16" y2="16" />
+                </svg>
+                Scan
+              </button>
+            </div>
+            {addLookupStatus && (
+              <p className={`text-xs ${addLookupStatus.startsWith("Already") ? "text-amber-600" : "text-emerald-600"}`}>
+                {addLookupStatus}
+              </p>
+            )}
+          </div>
           <Input
             label="Name"
             placeholder="Product name"
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
             error={addError ?? undefined}
-          />
-          <Input
-            label="Barcode (optional)"
-            placeholder="e.g. 1234567890123"
-            value={newBarcode}
-            onChange={(e) => setNewBarcode(e.target.value)}
           />
           <div className="flex flex-col gap-1.5">
             <label className="text-sm font-medium text-gray-700">
@@ -316,6 +395,7 @@ export function ProductsPage({ categories }: ProductsPageProps) {
               onClick={() => {
                 setAddOpen(false);
                 setAddError(null);
+                setAddLookupStatus(null);
               }}
             >
               Cancel

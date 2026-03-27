@@ -2,8 +2,15 @@ import { redirect } from "next/navigation";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { ShoppingPage } from "@/features/shopping/components/shopping-page";
 import { getCartItems } from "@/features/shopping/actions";
+import { getListWithItems, getListsPreview } from "@/features/lists/actions";
+import { getSharedWithMeCarts } from "@/features/shopping/actions-shares";
+import type { TrackingItem } from "@/features/shopping/components/list-tracking-panel";
 
-export default async function ShoppingRoute() {
+export default async function ShoppingRoute({
+  searchParams,
+}: {
+  searchParams: Promise<{ list?: string; cart?: string }>;
+}) {
   const supabase = await createServerSupabaseClient();
   const {
     data: { user },
@@ -11,43 +18,126 @@ export default async function ShoppingRoute() {
 
   if (!user) redirect("/auth/login");
 
-  // Get or create active cart
-  const { data: existingCart } = await supabase
-    .from("shopping_carts")
-    .select("id")
-    .eq("user_id", user.id)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .single();
+  const { list: listId, cart: cartParam } = await searchParams;
 
   let cartId: string;
+  let cartStoreId: string | null = null;
+  let isSharedCart = false;
+  let ownerEmail: string | undefined;
 
-  if (existingCart) {
-    cartId = existingCart.id;
-  } else {
-    const { data: newCart } = await supabase
+  if (cartParam) {
+    // Verify user has access to this cart (own or shared)
+    const { data: ownCart } = await supabase
       .from("shopping_carts")
-      .insert({ user_id: user.id, total: 0 })
-      .select("id")
-      .single();
+      .select("id, store_id")
+      .eq("id", cartParam)
+      .eq("user_id", user.id)
+      .maybeSingle();
 
-    cartId = newCart!.id;
+    if (ownCart) {
+      cartId = ownCart.id;
+      cartStoreId = ownCart.store_id;
+    } else {
+      // Check if shared with this user
+      const { data: share } = await supabase
+        .from("cart_shares")
+        .select("cart_id, owner_id")
+        .eq("cart_id", cartParam)
+        .eq("shared_with_user_id", user.id)
+        .maybeSingle();
+
+      if (share) {
+        cartId = share.cart_id;
+        isSharedCart = true;
+
+        // Get owner email from profiles
+        const { data: ownerProfile } = await supabase
+          .from("profiles")
+          .select("email")
+          .eq("id", share.owner_id)
+          .maybeSingle();
+
+        ownerEmail = ownerProfile?.email ?? share.owner_id;
+
+        // Get cart store
+        const { data: sharedCart } = await supabase
+          .from("shopping_carts")
+          .select("store_id")
+          .eq("id", cartId)
+          .maybeSingle();
+
+        cartStoreId = sharedCart?.store_id ?? null;
+      } else {
+        // No access — redirect to own cart
+        redirect("/shopping");
+      }
+    }
+  } else {
+    // Get or create active cart (include store_id)
+    const { data: existingCart } = await supabase
+      .from("shopping_carts")
+      .select("id, store_id")
+      .eq("user_id", user.id)
+      .is("finalized_at", null)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (existingCart) {
+      cartId = existingCart.id;
+      cartStoreId = existingCart.store_id;
+    } else {
+      const { data: newCart } = await supabase
+        .from("shopping_carts")
+        .insert({ user_id: user.id, total: 0 })
+        .select("id")
+        .single();
+      cartId = newCart!.id;
+    }
   }
 
-  // Fetch cart items using the shared action
-  const items = await getCartItems(cartId);
+  // Parallel fetches
+  const [items, storesResult, listsResult, sharedWithMeCarts] = await Promise.all([
+    getCartItems(cartId),
+    supabase.from("stores").select("id, name, is_active, sort_order").eq("is_active", true).order("sort_order", { ascending: true, nullsFirst: false }).order("name", { ascending: true }),
+    getListsPreview(),
+    getSharedWithMeCarts(),
+  ]);
 
-  // Fetch stores
-  const { data: stores } = await supabase
-    .from("stores")
-    .select("id, name")
-    .order("name");
+  // If a list was requested via URL, fetch its items for tracking
+  let initialTrackingList: { id: string; name: string; items: TrackingItem[] } | null = null;
+  if (listId) {
+    const { list, items: listItems } = await getListWithItems(listId);
+    if (list) {
+      initialTrackingList = {
+        id: list.id,
+        name: list.name,
+        items: listItems.map((i) => ({
+          id: i.id,
+          productId: i.product_id ?? null,
+          name: (i.products as unknown as { name: string } | null)?.name ?? "Unknown",
+          plannedQty: i.planned_quantity,
+        })),
+      };
+    }
+  }
+
+  // Filter out the current cart from shared invitations
+  const filteredSharedCarts = sharedWithMeCarts.filter(
+    (c) => c.cartId !== cartId,
+  );
 
   return (
     <ShoppingPage
       cartId={cartId}
+      initialStoreId={cartStoreId}
       initialItems={items}
-      stores={stores ?? []}
+      stores={storesResult.data ?? []}
+      lists={listsResult.lists}
+      initialTrackingList={initialTrackingList}
+      sharedWithMeCarts={filteredSharedCarts}
+      isSharedCart={isSharedCart}
+      ownerEmail={ownerEmail}
     />
   );
 }

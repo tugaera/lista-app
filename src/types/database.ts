@@ -31,16 +31,22 @@ export interface Database {
         Row: {
           id: string;
           name: string;
+          is_active: boolean;
+          sort_order: number | null;
           created_at: string;
         };
         Insert: {
           id?: string;
           name: string;
+          is_active?: boolean;
+          sort_order?: number | null;
           created_at?: string;
         };
         Update: {
           id?: string;
           name?: string;
+          is_active?: boolean;
+          sort_order?: number | null;
           created_at?: string;
         };
         Relationships: [];
@@ -51,6 +57,7 @@ export interface Database {
           name: string;
           barcode: string | null;
           category_id: string | null;
+          is_active: boolean;
           created_at: string;
         };
         Insert: {
@@ -58,6 +65,7 @@ export interface Database {
           name: string;
           barcode?: string | null;
           category_id?: string | null;
+          is_active?: boolean;
           created_at?: string;
         };
         Update: {
@@ -65,6 +73,7 @@ export interface Database {
           name?: string;
           barcode?: string | null;
           category_id?: string | null;
+          is_active?: boolean;
           created_at?: string;
         };
         Relationships: [
@@ -83,6 +92,7 @@ export interface Database {
           product_id: string;
           store_id: string;
           price: number;
+          original_price: number | null;
           quantity: number;
           created_at: string;
         };
@@ -91,6 +101,7 @@ export interface Database {
           product_id: string;
           store_id: string;
           price: number;
+          original_price?: number | null;
           quantity: number;
           created_at?: string;
         };
@@ -99,6 +110,7 @@ export interface Database {
           product_id?: string;
           store_id?: string;
           price?: number;
+          original_price?: number | null;
           quantity?: number;
           created_at?: string;
         };
@@ -183,45 +195,171 @@ export interface Database {
         Row: {
           id: string;
           user_id: string;
+          store_id: string | null;
           total: number;
           receipt_image_url: string | null;
+          finalized_at: string | null;
           created_at: string;
         };
         Insert: {
           id?: string;
           user_id: string;
+          store_id?: string | null;
           total: number;
           receipt_image_url?: string | null;
+          finalized_at?: string | null;
           created_at?: string;
         };
         Update: {
           id?: string;
           user_id?: string;
+          store_id?: string | null;
           total?: number;
           receipt_image_url?: string | null;
+          finalized_at?: string | null;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "shopping_carts_store_id_fkey";
+            columns: ["store_id"];
+            isOneToOne: false;
+            referencedRelation: "stores";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      profiles: {
+        Row: {
+          id: string;
+          email: string;
+          role: "admin" | "moderator" | "user";
+          invited_by: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id: string;
+          email: string;
+          role?: "admin" | "moderator" | "user";
+          invited_by?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          email?: string;
+          role?: "admin" | "moderator" | "user";
+          invited_by?: string | null;
           created_at?: string;
         };
         Relationships: [];
+      };
+      invites: {
+        Row: {
+          id: string;
+          code: string;
+          created_by: string;
+          assigned_role: "admin" | "moderator" | "user";
+          used_by: string | null;
+          used_at: string | null;
+          expires_at: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          code: string;
+          created_by: string;
+          assigned_role?: "admin" | "moderator" | "user";
+          used_by?: string | null;
+          used_at?: string | null;
+          expires_at: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          code?: string;
+          created_by?: string;
+          assigned_role?: "admin" | "moderator" | "user";
+          used_by?: string | null;
+          used_at?: string | null;
+          expires_at?: string;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "invites_created_by_fkey";
+            columns: ["created_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      cart_receipt_images: {
+        Row: {
+          id: string;
+          cart_id: string;
+          image_url: string;
+          sort_order: number;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          cart_id: string;
+          image_url: string;
+          sort_order?: number;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          cart_id?: string;
+          image_url?: string;
+          sort_order?: number;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "cart_receipt_images_cart_id_fkey";
+            columns: ["cart_id"];
+            isOneToOne: false;
+            referencedRelation: "shopping_carts";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       shopping_cart_items: {
         Row: {
           id: string;
           cart_id: string;
-          product_entry_id: string;
+          product_id: string | null;
+          product_entry_id: string | null;
+          product_name: string;
+          product_barcode: string | null;
+          price: number;
+          original_price: number | null;
           quantity: number;
           created_at: string;
         };
         Insert: {
           id?: string;
           cart_id: string;
-          product_entry_id: string;
+          product_id?: string | null;
+          product_entry_id?: string | null;
+          product_name: string;
+          product_barcode?: string | null;
+          price: number;
+          original_price?: number | null;
           quantity: number;
           created_at?: string;
         };
         Update: {
           id?: string;
           cart_id?: string;
-          product_entry_id?: string;
+          product_id?: string | null;
+          product_entry_id?: string | null;
+          product_name?: string;
+          product_barcode?: string | null;
+          price?: number;
+          original_price?: number | null;
           quantity?: number;
           created_at?: string;
         };
@@ -234,10 +372,80 @@ export interface Database {
             referencedColumns: ["id"];
           },
           {
-            foreignKeyName: "shopping_cart_items_product_entry_id_fkey";
-            columns: ["product_entry_id"];
+            foreignKeyName: "shopping_cart_items_product_id_fkey";
+            columns: ["product_id"];
             isOneToOne: false;
-            referencedRelation: "product_entries";
+            referencedRelation: "products";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      cart_shares: {
+        Row: {
+          id: string;
+          cart_id: string;
+          owner_id: string;
+          shared_with_email: string;
+          shared_with_user_id: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          cart_id: string;
+          owner_id: string;
+          shared_with_email: string;
+          shared_with_user_id?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          cart_id?: string;
+          owner_id?: string;
+          shared_with_email?: string;
+          shared_with_user_id?: string | null;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "cart_shares_cart_id_fkey";
+            columns: ["cart_id"];
+            isOneToOne: false;
+            referencedRelation: "shopping_carts";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      list_shares: {
+        Row: {
+          id: string;
+          list_id: string;
+          owner_id: string;
+          shared_with_email: string;
+          shared_with_user_id: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          list_id: string;
+          owner_id: string;
+          shared_with_email: string;
+          shared_with_user_id?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          list_id?: string;
+          owner_id?: string;
+          shared_with_email?: string;
+          shared_with_user_id?: string | null;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "list_shares_list_id_fkey";
+            columns: ["list_id"];
+            isOneToOne: false;
+            referencedRelation: "shopping_lists";
             referencedColumns: ["id"];
           },
         ];
@@ -259,8 +467,27 @@ export interface Database {
         Relationships: [];
       };
     };
-    Functions: Record<string, never>;
-    Enums: Record<string, never>;
+    Functions: {
+      validate_invite_code: {
+        Args: { invite_code: string };
+        Returns: boolean;
+      };
+      consume_invite: {
+        Args: { invite_code: string; user_id: string };
+        Returns: boolean;
+      };
+      join_cart_by_url: {
+        Args: { p_cart_id: string };
+        Returns: { success?: boolean; ownerEmail?: string; error?: string };
+      };
+      join_list_by_url: {
+        Args: { p_list_id: string };
+        Returns: { success?: boolean; ownerEmail?: string; error?: string };
+      };
+    };
+    Enums: {
+      user_role: "admin" | "moderator" | "user";
+    };
     CompositeTypes: Record<string, never>;
   };
 }
@@ -316,4 +543,25 @@ export type ShoppingCartItem = Tables<"shopping_cart_items">;
 export type ShoppingCartItemInsert = TablesInsert<"shopping_cart_items">;
 export type ShoppingCartItemUpdate = TablesUpdate<"shopping_cart_items">;
 
+export type CartShare = Tables<"cart_shares">;
+export type CartShareInsert = TablesInsert<"cart_shares">;
+export type CartShareUpdate = TablesUpdate<"cart_shares">;
+
+export type ListShare = Tables<"list_shares">;
+export type ListShareInsert = TablesInsert<"list_shares">;
+export type ListShareUpdate = TablesUpdate<"list_shares">;
+
 export type LatestProductPrice = Views<"latest_product_prices">;
+
+export type Profile = Tables<"profiles">;
+export type ProfileInsert = TablesInsert<"profiles">;
+export type ProfileUpdate = TablesUpdate<"profiles">;
+
+export type Invite = Tables<"invites">;
+export type InviteInsert = TablesInsert<"invites">;
+export type InviteUpdate = TablesUpdate<"invites">;
+
+export type CartReceiptImage = Tables<"cart_receipt_images">;
+export type CartReceiptImageInsert = TablesInsert<"cart_receipt_images">;
+
+export type UserRole = Database["public"]["Enums"]["user_role"];

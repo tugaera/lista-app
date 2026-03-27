@@ -32,14 +32,14 @@ export async function uploadReceipt(
 
   const { error: updateError } = await supabase
     .from("shopping_carts")
-    .update({ receipt_image_url: result.url })
+    .update({ receipt_image_url: result.path })
     .eq("id", cartId);
 
   if (updateError) {
     return { url: null, error: updateError.message };
   }
 
-  return { url: result.url, error: null };
+  return { url: result.path, error: null };
 }
 
 export async function processReceipt(

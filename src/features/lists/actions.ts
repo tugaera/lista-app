@@ -61,7 +61,7 @@ export async function deleteList(listId: string) {
 
 export async function addListItem(
   listId: string,
-  productId: string,
+  productName: string,
   quantity: number
 ) {
   const supabase = await createServerSupabaseClient();
@@ -73,6 +73,53 @@ export async function addListItem(
     redirect("/auth/login");
   }
 
+  // Find existing product by name or create new one
+  let productId: string;
+
+  const { data: existing } = await supabase
+    .from("products")
+    .select("id")
+    .ilike("name", productName.trim())
+    .limit(1)
+    .single();
+
+  if (existing) {
+    productId = existing.id;
+  } else {
+    const { data: newProduct, error: createError } = await supabase
+      .from("products")
+      .insert({ name: productName.trim() })
+      .select("id")
+      .single();
+
+    if (createError || !newProduct) {
+      return { error: createError?.message || "Failed to create product" };
+    }
+    productId = newProduct.id;
+  }
+
+  // Check if product already in this list — merge quantity
+  const { data: existingItem } = await supabase
+    .from("shopping_list_items")
+    .select("id, planned_quantity")
+    .eq("list_id", listId)
+    .eq("product_id", productId)
+    .single();
+
+  if (existingItem) {
+    const newQty = existingItem.planned_quantity + quantity;
+    const { error: updateError } = await supabase
+      .from("shopping_list_items")
+      .update({ planned_quantity: newQty })
+      .eq("id", existingItem.id);
+
+    if (updateError) {
+      return { error: updateError.message };
+    }
+
+    return { item: { id: existingItem.id }, merged: true };
+  }
+
   const { data, error } = await supabase
     .from("shopping_list_items")
     .insert({
@@ -80,14 +127,14 @@ export async function addListItem(
       product_id: productId,
       planned_quantity: quantity,
     })
-    .select("id")
+    .select("id, planned_quantity, product_id")
     .single();
 
   if (error) {
     return { error: error.message };
   }
 
-  return { item: data };
+  return { item: data, productName: productName.trim() };
 }
 
 export async function removeListItem(itemId: string) {
@@ -179,7 +226,7 @@ export async function convertListToCart(listId: string) {
     return { error: cartError?.message || "Failed to create cart" };
   }
 
-  // Create cart items from latest entries
+  // Create cart items using product_id + last known price directly
   const cartItems = listItems
     .map((listItem) => {
       const entry = latestEntries?.find(
@@ -188,13 +235,19 @@ export async function convertListToCart(listId: string) {
       if (!entry) return null;
       return {
         cart_id: cart.id,
-        product_entry_id: entry.id,
+        product_id: listItem.product_id,
+        product_name: entry.product_name,
+        product_barcode: entry.barcode ?? null,
+        price: entry.price,
         quantity: listItem.planned_quantity,
       };
     })
     .filter(Boolean) as {
     cart_id: string;
-    product_entry_id: string;
+    product_id: string;
+    product_name: string;
+    product_barcode: string | null;
+    price: number;
     quantity: number;
   }[];
 
@@ -209,6 +262,29 @@ export async function convertListToCart(listId: string) {
   }
 
   return { cartId: cart.id };
+}
+
+/** Lightweight list fetch for dropdowns (id, name, item count only) */
+export async function getListsPreview(): Promise<{
+  lists: { id: string; name: string; item_count: number }[];
+}> {
+  const supabase = await createServerSupabaseClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect("/auth/login");
+
+  const { data } = await supabase
+    .from("shopping_lists")
+    .select("id, name, shopping_list_items(count)")
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: false });
+
+  return {
+    lists: (data ?? []).map((l) => ({
+      id: l.id,
+      name: l.name,
+      item_count: (l.shopping_list_items as unknown as { count: number }[])?.[0]?.count ?? 0,
+    })),
+  };
 }
 
 export async function getLists() {
