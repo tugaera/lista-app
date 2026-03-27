@@ -99,7 +99,7 @@ export default async function ShoppingRoute({
   // Parallel fetches
   const [items, storesResult, listsResult, sharedWithMeCarts] = await Promise.all([
     getCartItems(cartId),
-    supabase.from("stores").select("id, name, is_active").eq("is_active", true).order("name"),
+    supabase.from("stores").select("id, name, is_active, sort_order").eq("is_active", true).order("sort_order", { ascending: true, nullsFirst: false }).order("name", { ascending: true }),
     getListsPreview(),
     getSharedWithMeCarts(),
   ]);
