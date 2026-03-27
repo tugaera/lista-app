@@ -9,6 +9,8 @@ import {
   createProduct,
   type ProductWithLatestPrice,
 } from "@/features/products/actions";
+import { BarcodeScanner } from "@/features/shopping/components/barcode-scanner";
+import { lookupBarcode } from "@/lib/barcode-lookup";
 import type { Category } from "@/types/database";
 
 interface AdminProductsPanelProps {
@@ -34,6 +36,19 @@ function Badge({ active }: { active: boolean }) {
   );
 }
 
+function BarcodeIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4">
+      <path strokeLinecap="round" strokeLinejoin="round"
+        d="M3 9V5a2 2 0 012-2h2M3 15v4a2 2 0 002 2h2M15 3h4a2 2 0 012 2v4M15 21h4a2 2 0 002-2v-4" />
+      <line x1="7" y1="8" x2="7" y2="16" />
+      <line x1="10" y1="8" x2="10" y2="16" />
+      <line x1="13" y1="8" x2="13" y2="16" />
+      <line x1="16" y1="8" x2="16" y2="16" />
+    </svg>
+  );
+}
+
 export function AdminProductsPanel({ categories }: AdminProductsPanelProps) {
   const [query, setQuery] = useState("");
   const debouncedQuery = useDebounce(query, 300);
@@ -44,6 +59,7 @@ export function AdminProductsPanel({ categories }: AdminProductsPanelProps) {
   const [edit, setEdit] = useState<EditState | null>(null);
   const [editLoading, setEditLoading] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+  const [editScanning, setEditScanning] = useState(false);
 
   // Add
   const [showAdd, setShowAdd] = useState(false);
@@ -52,6 +68,8 @@ export function AdminProductsPanel({ categories }: AdminProductsPanelProps) {
   const [addCategoryId, setAddCategoryId] = useState("");
   const [addLoading, setAddLoading] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
+  const [addScanning, setAddScanning] = useState(false);
+  const [addLookupStatus, setAddLookupStatus] = useState<string | null>(null);
 
   // Toggle loading state per product
   const [toggling, setToggling] = useState<Set<string>>(new Set());
@@ -144,8 +162,43 @@ export function AdminProductsPanel({ categories }: AdminProductsPanelProps) {
     setAddName("");
     setAddBarcode("");
     setAddCategoryId("");
+    setAddLookupStatus(null);
     loadProducts(debouncedQuery);
   }
+
+  // ── Barcode scan handlers ─────────────────────────────────────────────────
+
+  async function handleAddBarcodeScan(barcode: string) {
+    setAddScanning(false);
+    setAddBarcode(barcode);
+    setAddLookupStatus("Looking up barcode…");
+
+    const result = await lookupBarcode(barcode);
+    if (result.found) {
+      setAddName(result.name);
+      setAddLookupStatus(`Already in DB: "${result.name}"`);
+    } else if (result.name) {
+      setAddName(result.name);
+      setAddLookupStatus(`Found on Open Food Facts: "${result.name}"`);
+    } else {
+      setAddLookupStatus("Product not found — enter the name below");
+    }
+  }
+
+  async function handleEditBarcodeScan(barcode: string) {
+    if (!edit) return;
+    setEditScanning(false);
+    setEdit({ ...edit, barcode });
+
+    const result = await lookupBarcode(barcode);
+    if (result.found && !edit.name) {
+      setEdit((prev) => prev ? { ...prev, barcode, name: result.name } : prev);
+    } else if (!result.found && result.name && !edit.name) {
+      setEdit((prev) => prev ? { ...prev, barcode, name: result.name } : prev);
+    }
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-4">
@@ -154,7 +207,7 @@ export function AdminProductsPanel({ categories }: AdminProductsPanelProps) {
         <p className="text-sm text-gray-500">{products.length} products</p>
         <button
           type="button"
-          onClick={() => { setShowAdd(true); setAddError(null); }}
+          onClick={() => { setShowAdd(true); setAddError(null); setAddLookupStatus(null); }}
           className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700"
         >
           + Add Product
@@ -195,7 +248,6 @@ export function AdminProductsPanel({ categories }: AdminProductsPanelProps) {
                   <p className="mt-0.5 text-xs text-gray-400">{product.category_name}</p>
                 )}
               </div>
-              {/* Actions */}
               <div className="flex shrink-0 items-center gap-2">
                 <button
                   type="button"
@@ -222,132 +274,178 @@ export function AdminProductsPanel({ categories }: AdminProductsPanelProps) {
         </div>
       )}
 
-      {/* Edit Modal */}
+      {/* ── Edit Modal ─────────────────────────────────────────────────────── */}
       {edit && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-          onClick={(e) => { if (e.target === e.currentTarget) setEdit(null); }}
-        >
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
-            <h3 className="mb-4 text-lg font-semibold text-gray-900">Edit Product</h3>
-            <div className="space-y-3">
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">Name *</label>
-                <input
-                  type="text"
-                  value={edit.name}
-                  onChange={(e) => setEdit({ ...edit, name: e.target.value })}
-                  className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
-                />
+        <>
+          {editScanning && (
+            <BarcodeScanner
+              onScan={handleEditBarcodeScan}
+              onClose={() => setEditScanning(false)}
+            />
+          )}
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+            onClick={(e) => { if (e.target === e.currentTarget) setEdit(null); }}
+          >
+            <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+              <h3 className="mb-4 text-lg font-semibold text-gray-900">Edit Product</h3>
+              <div className="space-y-3">
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">Name *</label>
+                  <input
+                    type="text"
+                    value={edit.name}
+                    onChange={(e) => setEdit({ ...edit, name: e.target.value })}
+                    className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">Barcode</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={edit.barcode}
+                      onChange={(e) => setEdit({ ...edit, barcode: e.target.value })}
+                      placeholder="Optional"
+                      className="min-w-0 flex-1 rounded-xl border border-gray-200 px-3 py-2 font-mono text-sm focus:border-emerald-500 focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setEditScanning(true)}
+                      title="Scan barcode"
+                      className="flex items-center gap-1.5 rounded-xl border border-gray-200 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50"
+                    >
+                      <BarcodeIcon />
+                      Scan
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">Category</label>
+                  <select
+                    value={edit.categoryId}
+                    onChange={(e) => setEdit({ ...edit, categoryId: e.target.value })}
+                    className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+                  >
+                    <option value="">No category</option>
+                    {categories.map((c) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
+                {editError && <p className="text-sm text-red-600">{editError}</p>}
               </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">Barcode</label>
-                <input
-                  type="text"
-                  value={edit.barcode}
-                  onChange={(e) => setEdit({ ...edit, barcode: e.target.value })}
-                  placeholder="Optional"
-                  className="w-full rounded-xl border border-gray-200 px-3 py-2 font-mono text-sm focus:border-emerald-500 focus:outline-none"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">Category</label>
-                <select
-                  value={edit.categoryId}
-                  onChange={(e) => setEdit({ ...edit, categoryId: e.target.value })}
-                  className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+              <div className="mt-5 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEdit(null)}
+                  className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50"
                 >
-                  <option value="">No category</option>
-                  {categories.map((c) => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveEdit}
+                  disabled={editLoading}
+                  className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  {editLoading ? "Saving…" : "Save"}
+                </button>
               </div>
-              {editError && <p className="text-sm text-red-600">{editError}</p>}
-            </div>
-            <div className="mt-5 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setEdit(null)}
-                className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleSaveEdit}
-                disabled={editLoading}
-                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
-              >
-                {editLoading ? "Saving…" : "Save"}
-              </button>
             </div>
           </div>
-        </div>
+        </>
       )}
 
-      {/* Add Modal */}
+      {/* ── Add Modal ──────────────────────────────────────────────────────── */}
       {showAdd && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-          onClick={(e) => { if (e.target === e.currentTarget) setShowAdd(false); }}
-        >
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
-            <h3 className="mb-4 text-lg font-semibold text-gray-900">Add Product</h3>
-            <div className="space-y-3">
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">Name *</label>
-                <input
-                  type="text"
-                  value={addName}
-                  onChange={(e) => setAddName(e.target.value)}
-                  className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
-                />
+        <>
+          {addScanning && (
+            <BarcodeScanner
+              onScan={handleAddBarcodeScan}
+              onClose={() => setAddScanning(false)}
+            />
+          )}
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+            onClick={(e) => { if (e.target === e.currentTarget) setShowAdd(false); }}
+          >
+            <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+              <h3 className="mb-4 text-lg font-semibold text-gray-900">Add Product</h3>
+              <div className="space-y-3">
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">
+                    Barcode
+                    <span className="ml-1 font-normal text-gray-400">(scan first to auto-fill)</span>
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={addBarcode}
+                      onChange={(e) => setAddBarcode(e.target.value)}
+                      placeholder="Optional"
+                      className="min-w-0 flex-1 rounded-xl border border-gray-200 px-3 py-2 font-mono text-sm focus:border-emerald-500 focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setAddScanning(true)}
+                      title="Scan barcode"
+                      className="flex items-center gap-1.5 rounded-xl border border-gray-200 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50"
+                    >
+                      <BarcodeIcon />
+                      Scan
+                    </button>
+                  </div>
+                  {addLookupStatus && (
+                    <p className={`mt-1 text-xs ${addLookupStatus.startsWith("Already") ? "text-amber-600" : "text-emerald-600"}`}>
+                      {addLookupStatus}
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">Name *</label>
+                  <input
+                    type="text"
+                    value={addName}
+                    onChange={(e) => setAddName(e.target.value)}
+                    className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">Category</label>
+                  <select
+                    value={addCategoryId}
+                    onChange={(e) => setAddCategoryId(e.target.value)}
+                    className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+                  >
+                    <option value="">No category</option>
+                    {categories.map((c) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
+                {addError && <p className="text-sm text-red-600">{addError}</p>}
               </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">Barcode</label>
-                <input
-                  type="text"
-                  value={addBarcode}
-                  onChange={(e) => setAddBarcode(e.target.value)}
-                  placeholder="Optional"
-                  className="w-full rounded-xl border border-gray-200 px-3 py-2 font-mono text-sm focus:border-emerald-500 focus:outline-none"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">Category</label>
-                <select
-                  value={addCategoryId}
-                  onChange={(e) => setAddCategoryId(e.target.value)}
-                  className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+              <div className="mt-5 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAdd(false)}
+                  className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50"
                 >
-                  <option value="">No category</option>
-                  {categories.map((c) => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleAdd}
+                  disabled={addLoading}
+                  className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  {addLoading ? "Adding…" : "Add"}
+                </button>
               </div>
-              {addError && <p className="text-sm text-red-600">{addError}</p>}
-            </div>
-            <div className="mt-5 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setShowAdd(false)}
-                className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleAdd}
-                disabled={addLoading}
-                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
-              >
-                {addLoading ? "Adding…" : "Add"}
-              </button>
             </div>
           </div>
-        </div>
+        </>
       )}
     </div>
   );

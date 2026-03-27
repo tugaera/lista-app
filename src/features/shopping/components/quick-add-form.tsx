@@ -37,70 +37,37 @@ export function QuickAddForm({
     setBarcode(scannedBarcode);
     setBarcodeStatus("Looking up barcode...");
 
-    async function lookupBarcode() {
+    async function doLookup() {
       try {
-        const { createBrowserSupabaseClient } = await import("@/lib/supabase/client");
-        const supabase = createBrowserSupabaseClient();
+        const { lookupBarcode } = await import("@/lib/barcode-lookup");
+        const result = await lookupBarcode(scannedBarcode!);
 
-        // Look up product by barcode in our DB first
-        const { data: product } = await supabase
-          .from("products")
-          .select("id, name")
-          .eq("barcode", scannedBarcode!)
-          .eq("is_active", true)
-          .single();
-
-        if (product) {
-          setProductName(product.name);
-
-          // Get latest price from any store
+        if (result.found) {
+          setProductName(result.name);
+          // Also fetch last price for this product
+          const { createBrowserSupabaseClient } = await import("@/lib/supabase/client");
+          const supabase = createBrowserSupabaseClient();
           const { data: entry } = await supabase
             .from("product_entries")
             .select("price")
-            .eq("product_id", product.id)
+            .eq("product_id", result.productId)
             .order("created_at", { ascending: false })
             .limit(1)
             .single();
-
           if (entry) setPrice(entry.price.toFixed(2));
-          setBarcodeStatus(`Found: ${product.name}`);
+          setBarcodeStatus(`Found: ${result.name}`);
+        } else if (result.name) {
+          setProductName(result.name);
+          setBarcodeStatus(`Found: ${result.name}`);
         } else {
-          // Not in our DB — try Open Food Facts API
-          setBarcodeStatus("Searching Open Food Facts...");
-          try {
-            const res = await fetch(
-              `https://world.openfoodfacts.org/api/v0/product/${scannedBarcode}.json`,
-            );
-            const json = await res.json();
-
-            if (json.status === 1 && json.product) {
-              const p = json.product;
-              const name =
-                p.product_name_pt ||
-                p.generic_name_pt ||
-                p.product_name ||
-                p.generic_name ||
-                "";
-
-              if (name) {
-                setProductName(name);
-                setBarcodeStatus(`Found: ${name}`);
-              } else {
-                setBarcodeStatus("Product found but no name — type it below");
-              }
-            } else {
-              setBarcodeStatus("Product not found — type name below");
-            }
-          } catch {
-            setBarcodeStatus("Could not search online — type name below");
-          }
+          setBarcodeStatus("Product not found — type name below");
         }
       } catch {
         setBarcodeStatus("Error looking up barcode — type name below");
       }
     }
 
-    lookupBarcode();
+    doLookup();
   }, [scannedBarcode]);
 
   function handleProductSelect(product: ProductResult) {
