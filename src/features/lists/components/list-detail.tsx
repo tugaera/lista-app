@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -44,6 +44,8 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
   const [error, setError] = useState<string | null>(null);
   const [showScanner, setShowScanner] = useState(false);
   const [barcodeStatus, setBarcodeStatus] = useState<string | null>(null);
+  const scannedBarcodeRef = useRef<string | null>(null);
+  const scannedNameRef = useRef<string | null>(null);
 
   // Share panel
   const [showSharePanel, setShowSharePanel] = useState(false);
@@ -57,6 +59,8 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
   async function handleBarcodeScan(barcode: string) {
     setShowScanner(false);
     setBarcodeStatus("Looking up barcode…");
+    scannedBarcodeRef.current = barcode;
+    scannedNameRef.current = null;
 
     try {
       const { createBrowserSupabaseClient } = await import("@/lib/supabase/client");
@@ -70,6 +74,7 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
         .single();
 
       if (product) {
+        scannedNameRef.current = product.name;
         setProductName(product.name);
         setBarcodeStatus(`Found: ${product.name}`);
       } else {
@@ -81,25 +86,32 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
             const p = json.product;
             const name = p.product_name_pt || p.generic_name_pt || p.product_name || p.generic_name || "";
             if (name) {
+              scannedNameRef.current = name;
               setProductName(name);
               setBarcodeStatus(`Found: ${name}`);
             } else {
+              scannedBarcodeRef.current = null;
               setBarcodeStatus("Product found but no name — type it below");
             }
           } else {
+            scannedBarcodeRef.current = null;
             setBarcodeStatus("Product not found — type name below");
           }
         } catch {
+          scannedBarcodeRef.current = null;
           setBarcodeStatus("Could not search online — type name below");
         }
       }
     } catch {
+      scannedBarcodeRef.current = null;
       setBarcodeStatus("Error looking up barcode");
     }
   }
 
   function handleProductSelect(product: ProductResult) {
     setProductName(product.name);
+    scannedBarcodeRef.current = null;
+    scannedNameRef.current = null;
     setBarcodeStatus(null);
   }
 
@@ -110,9 +122,13 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
 
     const name = productName.trim();
     const qty = Number(quantity) || 1;
+    // Only pass barcode if the name still matches what the scan returned (user didn't change it)
+    const barcode = scannedBarcodeRef.current && scannedNameRef.current === name
+      ? scannedBarcodeRef.current
+      : undefined;
 
     startTransition(async () => {
-      const result = await addListItem(list.id, name, qty);
+      const result = await addListItem(list.id, name, qty, barcode ? { barcode } : undefined);
 
       if (result && "error" in result && result.error) {
         setError(result.error);
@@ -127,12 +143,23 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
               : item,
           ),
         );
-      } else {
-        router.refresh();
+      } else if (result && "item" in result && result.item) {
+        const newItem = result.item as ListItemWithProduct;
+        setItems((prev) => [
+          ...prev,
+          {
+            ...newItem,
+            products: newItem.product_id
+              ? { id: newItem.product_id, name: result.productName ?? name, barcode: barcode ?? null }
+              : null,
+          },
+        ]);
       }
 
       setProductName("");
       setQuantity("1");
+      scannedBarcodeRef.current = null;
+      scannedNameRef.current = null;
       setBarcodeStatus(null);
     });
   }
@@ -329,7 +356,10 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
                 onSelect={handleProductSelect}
                 placeholder="Search or type product name"
                 value={productName}
-                onValueChange={(v) => { setProductName(v); setBarcodeStatus(null); }}
+                onValueChange={(v) => {
+                  setProductName(v);
+                  setBarcodeStatus(null);
+                }}
               />
             </div>
             <button
@@ -369,7 +399,7 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
               <div className="flex items-center justify-between">
                 <div className="flex-1">
                   <p className="font-medium text-gray-900">
-                    {item.products?.name ?? "Unknown product"}
+                    {item.products?.name ?? item.product_name ?? "Unknown product"}
                   </p>
                   {isOwner && editingItem === item.id ? (
                     <div className="mt-1 flex items-center gap-2">
@@ -416,7 +446,7 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
         onClose={() => setDeleteConfirm(null)}
         onConfirm={handleRemoveItem}
         title="Remove item"
-        message={`Remove "${deleteItem?.products?.name ?? "this item"}" from the list?`}
+        message={`Remove "${deleteItem?.products?.name ?? deleteItem?.product_name ?? "this item"}" from the list?`}
         confirmLabel="Remove"
         loading={isPending}
       />

@@ -160,17 +160,8 @@ export function QuickAddForm({
           {disabled && (
             <p className="mb-2 text-xs text-amber-600">⚠ Select a store above to start adding items</p>
           )}
-          <div className="mb-2">
-            <ProductSearch
-              onSelect={handleProductSelect}
-              placeholder="Product name (search or type new)"
-              value={productName}
-              onValueChange={setProductName}
-              disabled={disabled}
-              storeId={storeId}
-            />
-          </div>
-          <div className="flex gap-2">
+          {/* Row 1: scanner + product name */}
+          <div className="mb-2 flex gap-2">
             {onScanRequest && (
               <button
                 type="button"
@@ -183,7 +174,20 @@ export function QuickAddForm({
                 </svg>
               </button>
             )}
+            <div className="min-w-0 flex-1">
+              <ProductSearch
+                onSelect={handleProductSelect}
+                placeholder="Product name (search or type new)"
+                value={productName}
+                onValueChange={setProductName}
+                disabled={disabled}
+                storeId={storeId}
+              />
+            </div>
+          </div>
 
+          {/* Row 2: price + qty + discount + add */}
+          <div className="flex gap-2">
             {/* Price — shows discount badge if active */}
             <div className="relative w-24 flex-shrink-0">
               <input
@@ -221,7 +225,7 @@ export function QuickAddForm({
               onChange={(e) => setQuantity(e.target.value)}
               placeholder="Qty"
               disabled={disabled}
-              className="w-16 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-400"
+              className="w-16 flex-shrink-0 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-400"
             />
 
             {/* Discount toggle */}
@@ -244,7 +248,7 @@ export function QuickAddForm({
             <button
               type="submit"
               disabled={isPending || disabled}
-              className="flex-shrink-0 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
+              className="flex-1 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
             >
               {isPending ? "..." : "Add"}
             </button>

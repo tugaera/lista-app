@@ -156,21 +156,24 @@ export interface Database {
         Row: {
           id: string;
           list_id: string;
-          product_id: string;
+          product_id: string | null;
+          product_name: string | null;
           planned_quantity: number;
           created_at: string;
         };
         Insert: {
           id?: string;
           list_id: string;
-          product_id: string;
+          product_id?: string | null;
+          product_name?: string | null;
           planned_quantity: number;
           created_at?: string;
         };
         Update: {
           id?: string;
           list_id?: string;
-          product_id?: string;
+          product_id?: string | null;
+          product_name?: string | null;
           planned_quantity?: number;
           created_at?: string;
         };
