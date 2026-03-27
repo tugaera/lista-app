@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -46,6 +46,7 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
   const [showScanner, setShowScanner] = useState(false);
   const [barcodeStatus, setBarcodeStatus] = useState<string | null>(null);
   const [scannedBarcode, setScannedBarcode] = useState<string | null>(null);
+  const settingNameFromScan = useRef(false);
 
   // Share panel
   const [showSharePanel, setShowSharePanel] = useState(false);
@@ -73,6 +74,7 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
         .single();
 
       if (product) {
+        settingNameFromScan.current = true;
         setProductName(product.name);
         setBarcodeStatus(`Found: ${product.name}`);
       } else {
@@ -84,6 +86,7 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
             const p = json.product;
             const name = p.product_name_pt || p.generic_name_pt || p.product_name || p.generic_name || "";
             if (name) {
+              settingNameFromScan.current = true;
               setProductName(name);
               setBarcodeStatus(`Found: ${name}`);
             } else {
@@ -348,7 +351,15 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
                 onSelect={handleProductSelect}
                 placeholder="Search or type product name"
                 value={productName}
-                onValueChange={(v) => { setProductName(v); setScannedBarcode(null); setBarcodeStatus(null); }}
+                onValueChange={(v) => {
+                  setProductName(v);
+                  if (settingNameFromScan.current) {
+                    settingNameFromScan.current = false;
+                  } else {
+                    setScannedBarcode(null);
+                    setBarcodeStatus(null);
+                  }
+                }}
               />
             </div>
             <button
