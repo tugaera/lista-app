@@ -293,3 +293,67 @@ export async function adminToggleProductActive(
   revalidatePath("/products");
   return {};
 }
+
+export type ProductDependencies = {
+  cartItemCount: number;   // active (non-finalized) cart items
+  historyCount: number;    // finalized cart items
+  priceEntryCount: number; // product_entries (price history)
+  listItemCount: number;   // shopping list items
+};
+
+export async function checkProductDependencies(
+  productId: string,
+): Promise<{ deps: ProductDependencies; error?: string }> {
+  const supabase = await createServerSupabaseClient();
+
+  const [cartItems, priceEntries, listItems] = await Promise.all([
+    // cart items (split by finalized status via the cart join)
+    supabase
+      .from("shopping_cart_items")
+      .select("id, shopping_carts!inner(finalized_at)")
+      .eq("product_id", productId),
+    // price history entries
+    supabase
+      .from("product_entries")
+      .select("id", { count: "exact", head: true })
+      .eq("product_id", productId),
+    // shopping list items
+    supabase
+      .from("shopping_list_items")
+      .select("id", { count: "exact", head: true })
+      .eq("product_id", productId),
+  ]);
+
+  const allCartItems = cartItems.data ?? [];
+  const cartItemCount = allCartItems.filter(
+    (i) => !(i.shopping_carts as unknown as { finalized_at: string | null }).finalized_at,
+  ).length;
+  const historyCount = allCartItems.filter(
+    (i) => !!(i.shopping_carts as unknown as { finalized_at: string | null }).finalized_at,
+  ).length;
+
+  return {
+    deps: {
+      cartItemCount,
+      historyCount,
+      priceEntryCount: priceEntries.count ?? 0,
+      listItemCount: listItems.count ?? 0,
+    },
+  };
+}
+
+export async function adminDeleteProduct(
+  productId: string,
+): Promise<{ error?: string }> {
+  const supabase = await createServerSupabaseClient();
+
+  const { error } = await supabase
+    .from("products")
+    .delete()
+    .eq("id", productId);
+
+  if (error) return { error: error.message };
+  revalidatePath("/admin");
+  revalidatePath("/products");
+  return {};
+}

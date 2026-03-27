@@ -6,8 +6,11 @@ import {
   getAdminProducts,
   adminUpdateProduct,
   adminToggleProductActive,
+  adminDeleteProduct,
+  checkProductDependencies,
   createProduct,
   type ProductWithLatestPrice,
+  type ProductDependencies,
 } from "@/features/products/actions";
 import { BarcodeScanner } from "@/features/shopping/components/barcode-scanner";
 import { lookupBarcode } from "@/lib/barcode-lookup";
@@ -73,6 +76,14 @@ export function AdminProductsPanel({ categories }: AdminProductsPanelProps) {
 
   // Toggle loading state per product
   const [toggling, setToggling] = useState<Set<string>>(new Set());
+
+  // Delete
+  type DeleteTarget = { id: string; name: string };
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
+  const [deleteDeps, setDeleteDeps] = useState<ProductDependencies | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteChecking, setDeleteChecking] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const loadProducts = useCallback(async (q: string) => {
     setLoading(true);
@@ -166,6 +177,32 @@ export function AdminProductsPanel({ categories }: AdminProductsPanelProps) {
     loadProducts(debouncedQuery);
   }
 
+  async function openDelete(product: ProductWithLatestPrice) {
+    setDeleteTarget({ id: product.id, name: product.name });
+    setDeleteDeps(null);
+    setDeleteError(null);
+    setDeleteChecking(true);
+    const { deps } = await checkProductDependencies(product.id);
+    setDeleteDeps(deps);
+    setDeleteChecking(false);
+  }
+
+  async function handleDelete() {
+    if (!deleteTarget) return;
+    setDeleteLoading(true);
+    setDeleteError(null);
+    const { error } = await adminDeleteProduct(deleteTarget.id);
+    if (error) {
+      setDeleteError(error);
+      setDeleteLoading(false);
+      return;
+    }
+    setProducts((prev) => prev.filter((p) => p.id !== deleteTarget.id));
+    setDeleteTarget(null);
+    setDeleteDeps(null);
+    setDeleteLoading(false);
+  }
+
   // ── Barcode scan handlers ─────────────────────────────────────────────────
 
   async function handleAddBarcodeScan(barcode: string) {
@@ -255,11 +292,18 @@ export function AdminProductsPanel({ categories }: AdminProductsPanelProps) {
                   disabled={toggling.has(product.id)}
                   className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition disabled:opacity-50 ${
                     product.is_active
-                      ? "border-red-200 text-red-600 hover:bg-red-50"
+                      ? "border-orange-200 text-orange-600 hover:bg-orange-50"
                       : "border-emerald-200 text-emerald-600 hover:bg-emerald-50"
                   }`}
                 >
                   {product.is_active ? "Disable" : "Enable"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openDelete(product)}
+                  className="rounded-lg border border-red-200 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
+                >
+                  Delete
                 </button>
               </div>
             </div>
@@ -348,6 +392,69 @@ export function AdminProductsPanel({ categories }: AdminProductsPanelProps) {
             </div>
           </div>
         </>
+      )}
+
+      {/* ── Delete Modal ───────────────────────────────────────────────────── */}
+      {deleteTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={(e) => { if (e.target === e.currentTarget && !deleteLoading) { setDeleteTarget(null); } }}
+        >
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+            <h3 className="mb-1 text-lg font-semibold text-gray-900">Delete Product</h3>
+            <p className="mb-4 text-sm text-gray-500">
+              Are you sure you want to permanently delete <span className="font-medium text-gray-900">{deleteTarget.name}</span>?
+            </p>
+
+            {deleteChecking ? (
+              <p className="mb-4 text-sm text-gray-400">Checking dependencies…</p>
+            ) : deleteDeps && (
+              <div className="mb-4 rounded-xl border border-gray-200 bg-gray-50 p-3 text-sm space-y-1">
+                {deleteDeps.cartItemCount === 0 && deleteDeps.historyCount === 0 && deleteDeps.priceEntryCount === 0 && deleteDeps.listItemCount === 0 ? (
+                  <p className="text-emerald-700 font-medium">No dependencies found — safe to delete.</p>
+                ) : (
+                  <>
+                    <p className="font-medium text-amber-700 mb-2">This product has dependencies:</p>
+                    {deleteDeps.cartItemCount > 0 && (
+                      <p className="text-red-600">• {deleteDeps.cartItemCount} active cart item{deleteDeps.cartItemCount !== 1 ? "s" : ""}</p>
+                    )}
+                    {deleteDeps.historyCount > 0 && (
+                      <p className="text-amber-600">• {deleteDeps.historyCount} finalized cart item{deleteDeps.historyCount !== 1 ? "s" : ""} (history)</p>
+                    )}
+                    {deleteDeps.priceEntryCount > 0 && (
+                      <p className="text-amber-600">• {deleteDeps.priceEntryCount} price history entr{deleteDeps.priceEntryCount !== 1 ? "ies" : "y"}</p>
+                    )}
+                    {deleteDeps.listItemCount > 0 && (
+                      <p className="text-amber-600">• {deleteDeps.listItemCount} shopping list item{deleteDeps.listItemCount !== 1 ? "s" : ""}</p>
+                    )}
+                    <p className="mt-2 text-xs text-gray-500">Deleting will remove or orphan all of the above.</p>
+                  </>
+                )}
+              </div>
+            )}
+
+            {deleteError && <p className="mb-3 text-sm text-red-600">{deleteError}</p>}
+
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setDeleteTarget(null)}
+                disabled={deleteLoading}
+                className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={deleteLoading || deleteChecking}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {deleteLoading ? "Deleting…" : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ── Add Modal ──────────────────────────────────────────────────────── */}
