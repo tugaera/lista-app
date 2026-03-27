@@ -23,7 +23,6 @@ import type { ShoppingList, ShoppingListItem, Product } from "@/types/database";
 
 interface ListItemWithProduct extends ShoppingListItem {
   products: Pick<Product, "id" | "name" | "barcode"> | null;
-  product_name?: string | null;
 }
 
 interface ListDetailProps {
