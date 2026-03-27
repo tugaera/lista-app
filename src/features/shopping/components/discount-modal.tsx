@@ -11,6 +11,7 @@ interface DiscountModalProps {
   initialPrice?: number;      // original (pre-discount) price
   initialFinalPrice?: number; // final (post-discount) price, when re-opening an existing discount
   onConfirm: (result: DiscountResult) => void;
+  onReset?: () => void;       // called when user removes the discount
   onClose: () => void;
 }
 
@@ -82,7 +83,7 @@ function recalculate(
   return next;
 }
 
-export function DiscountModal({ initialPrice, initialFinalPrice, onConfirm, onClose }: DiscountModalProps) {
+export function DiscountModal({ initialPrice, initialFinalPrice, onConfirm, onReset, onClose }: DiscountModalProps) {
   const origStr  = initialPrice      != null && !isNaN(initialPrice)      ? initialPrice.toFixed(2)      : "";
   const finalStr = initialFinalPrice != null && !isNaN(initialFinalPrice) ? initialFinalPrice.toFixed(2) : origStr;
 
@@ -243,7 +244,17 @@ export function DiscountModal({ initialPrice, initialFinalPrice, onConfirm, onCl
           </div>
         )}
 
-        <div className="mt-4 flex gap-3">
+        {onReset && initialFinalPrice != null && (
+          <button
+            type="button"
+            onClick={() => { onReset(); onClose(); }}
+            className="mt-4 w-full rounded-xl border border-red-200 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50"
+          >
+            Remove Discount
+          </button>
+        )}
+
+        <div className="mt-3 flex gap-3">
           <button
             type="button"
             onClick={onClose}
