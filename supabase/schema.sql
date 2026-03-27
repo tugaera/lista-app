@@ -81,6 +81,7 @@ create table product_entries (
   product_id uuid not null references products(id) on delete cascade,
   store_id uuid not null references stores(id) on delete cascade,
   price numeric(10, 2) not null check (price >= 0),
+  original_price numeric(10, 2),
   quantity numeric(10, 3) not null default 1 check (quantity > 0),
   created_at timestamptz not null default now()
 );
@@ -127,14 +128,16 @@ create index idx_shopping_carts_active on shopping_carts (user_id, finalized_at)
 
 -- Shopping Cart Items
 create table shopping_cart_items (
-  id         uuid primary key default uuid_generate_v4(),
-  cart_id    uuid not null references shopping_carts(id) on delete cascade,
-  product_id uuid not null references products(id),
-  price      numeric(10, 2) not null,
-  -- legacy column kept nullable for old rows; new inserts leave it null
+  id               uuid primary key default uuid_generate_v4(),
+  cart_id          uuid not null references shopping_carts(id) on delete cascade,
+  product_id       uuid references products(id),           -- nullable: resolved at checkout
   product_entry_id uuid references product_entries(id) on delete set null,
-  quantity   numeric(10, 3) not null default 1 check (quantity > 0),
-  created_at timestamptz not null default now()
+  product_name     text not null,
+  product_barcode  text,
+  price            numeric(10, 2) not null,
+  original_price   numeric(10, 2),
+  quantity         numeric(10, 3) not null default 1 check (quantity > 0),
+  created_at       timestamptz not null default now()
 );
 
 create index idx_shopping_cart_items_cart on shopping_cart_items (cart_id);
@@ -150,6 +153,28 @@ create table cart_receipt_images (
 
 create index idx_cart_receipt_images_cart on cart_receipt_images(cart_id);
 
+-- Cart Shares
+create table cart_shares (
+  id                  uuid primary key default gen_random_uuid(),
+  cart_id             uuid not null references shopping_carts(id) on delete cascade,
+  owner_id            uuid not null references auth.users(id),
+  shared_with_email   text not null,
+  shared_with_user_id uuid references auth.users(id),
+  created_at          timestamptz not null default now(),
+  unique(cart_id, shared_with_email)
+);
+
+-- List Shares
+create table list_shares (
+  id                  uuid primary key default gen_random_uuid(),
+  list_id             uuid not null references shopping_lists(id) on delete cascade,
+  owner_id            uuid not null references auth.users(id) on delete cascade,
+  shared_with_email   text not null,
+  shared_with_user_id uuid references auth.users(id) on delete set null,
+  created_at          timestamptz not null default now(),
+  unique(list_id, shared_with_email)
+);
+
 -- ============================================================
 -- VIEWS
 -- ============================================================
@@ -161,6 +186,7 @@ select distinct on (pe.product_id, pe.store_id)
   pe.product_id,
   pe.store_id,
   pe.price,
+  pe.original_price,
   pe.quantity,
   pe.created_at,
   p.name as product_name,
@@ -245,6 +271,65 @@ $$ language plpgsql security definer;
 -- ROW LEVEL SECURITY
 -- ============================================================
 
+-- Join cart by URL (SECURITY DEFINER — bypasses owner-only cart_shares insert policy)
+create or replace function public.join_cart_by_url(p_cart_id uuid)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  v_owner_id    uuid;
+  v_owner_email text;
+  v_user_id     uuid;
+  v_user_email  text;
+begin
+  v_user_id := auth.uid();
+  if v_user_id is null then return jsonb_build_object('error', 'Not authenticated'); end if;
+
+  select user_id into v_owner_id from shopping_carts
+    where id = p_cart_id and finalized_at is null;
+  if v_owner_id is null then return jsonb_build_object('error', 'Cart not found or already finalized'); end if;
+  if v_owner_id = v_user_id then return jsonb_build_object('error', 'own_cart'); end if;
+
+  select email into v_owner_email from profiles where id = v_owner_id;
+  select email into v_user_email  from profiles where id = v_user_id;
+
+  insert into cart_shares (cart_id, owner_id, shared_with_email, shared_with_user_id)
+  values (p_cart_id, v_owner_id, v_user_email, v_user_id)
+  on conflict (cart_id, shared_with_email) do update set shared_with_user_id = v_user_id;
+
+  return jsonb_build_object('success', true, 'ownerEmail', v_owner_email);
+end;
+$$;
+
+-- Join list by URL (SECURITY DEFINER)
+create or replace function public.join_list_by_url(p_list_id uuid)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  v_owner_id    uuid;
+  v_owner_email text;
+  v_user_id     uuid;
+  v_user_email  text;
+begin
+  v_user_id := auth.uid();
+  if v_user_id is null then return jsonb_build_object('error', 'Not authenticated'); end if;
+
+  select user_id into v_owner_id from shopping_lists where id = p_list_id;
+  if v_owner_id is null then return jsonb_build_object('error', 'List not found'); end if;
+  if v_owner_id = v_user_id then return jsonb_build_object('error', 'own_list'); end if;
+
+  select email into v_owner_email from profiles where id = v_owner_id;
+  select email into v_user_email  from profiles where id = v_user_id;
+
+  insert into list_shares (list_id, owner_id, shared_with_email, shared_with_user_id)
+  values (p_list_id, v_owner_id, v_user_email, v_user_id)
+  on conflict (list_id, shared_with_email) do update set shared_with_user_id = v_user_id;
+
+  return jsonb_build_object('success', true, 'ownerEmail', v_owner_email);
+end;
+$$;
+
+-- ============================================================
+-- ROW LEVEL SECURITY
+-- ============================================================
+
 -- Enable RLS on all tables
 alter table profiles enable row level security;
 alter table invites enable row level security;
@@ -257,6 +342,8 @@ alter table shopping_list_items enable row level security;
 alter table shopping_carts enable row level security;
 alter table shopping_cart_items enable row level security;
 alter table cart_receipt_images enable row level security;
+alter table cart_shares enable row level security;
+alter table list_shares enable row level security;
 
 -- Profiles: role-based access (uses get_my_role() to avoid RLS recursion)
 create policy "profiles_select_admin" on profiles
@@ -334,9 +421,12 @@ create policy "product_entries_select" on product_entries
 create policy "product_entries_insert" on product_entries
   for insert to authenticated with check (true);
 
--- Shopping lists: user-scoped CRUD
+-- Shopping lists: owner CRUD + shared members can read
 create policy "shopping_lists_select" on shopping_lists
-  for select to authenticated using (auth.uid() = user_id);
+  for select to authenticated using (
+    user_id = auth.uid()
+    or exists (select 1 from list_shares where list_id = id and shared_with_user_id = auth.uid())
+  );
 
 create policy "shopping_lists_insert" on shopping_lists
   for insert to authenticated with check (auth.uid() = user_id);
@@ -347,10 +437,15 @@ create policy "shopping_lists_update" on shopping_lists
 create policy "shopping_lists_delete" on shopping_lists
   for delete to authenticated using (auth.uid() = user_id);
 
--- Shopping list items: accessible via list ownership
+-- Shopping list items: owner + shared members can read; only owner can write
 create policy "shopping_list_items_select" on shopping_list_items
   for select to authenticated using (
-    exists (select 1 from shopping_lists where id = list_id and user_id = auth.uid())
+    exists (
+      select 1 from shopping_lists sl
+      where sl.id = list_id
+        and (sl.user_id = auth.uid()
+          or exists (select 1 from list_shares ls where ls.list_id = sl.id and ls.shared_with_user_id = auth.uid()))
+    )
   );
 
 create policy "shopping_list_items_insert" on shopping_list_items
@@ -368,9 +463,46 @@ create policy "shopping_list_items_delete" on shopping_list_items
     exists (select 1 from shopping_lists where id = list_id and user_id = auth.uid())
   );
 
--- Shopping carts: user-scoped CRUD
+-- Cart shares: owner sees all; shared member sees their record
+create policy "cart_shares_select" on cart_shares
+  for select to authenticated
+  using (owner_id = auth.uid() or shared_with_user_id = auth.uid());
+
+create policy "cart_shares_insert" on cart_shares
+  for insert to authenticated
+  with check (
+    owner_id = auth.uid()
+    and exists (select 1 from shopping_carts where id = cart_id and user_id = auth.uid())
+  );
+
+create policy "cart_shares_delete" on cart_shares
+  for delete to authenticated
+  using (owner_id = auth.uid());
+
+-- List shares: owner sees all; shared member sees their record
+create policy "list_shares_select_owner" on list_shares
+  for select to authenticated using (owner_id = auth.uid());
+
+create policy "list_shares_select_member" on list_shares
+  for select to authenticated using (shared_with_user_id = auth.uid());
+
+create policy "list_shares_insert" on list_shares
+  for insert to authenticated
+  with check (
+    owner_id = auth.uid()
+    and exists (select 1 from shopping_lists where id = list_id and user_id = auth.uid())
+  );
+
+create policy "list_shares_delete" on list_shares
+  for delete to authenticated
+  using (owner_id = auth.uid());
+
+-- Shopping carts: owner CRUD + shared members can read/write items (not the cart itself)
 create policy "shopping_carts_select" on shopping_carts
-  for select to authenticated using (auth.uid() = user_id);
+  for select to authenticated using (
+    user_id = auth.uid()
+    or exists (select 1 from cart_shares where cart_id = id and shared_with_user_id = auth.uid())
+  );
 
 create policy "shopping_carts_insert" on shopping_carts
   for insert to authenticated with check (auth.uid() = user_id);
@@ -381,25 +513,29 @@ create policy "shopping_carts_update" on shopping_carts
 create policy "shopping_carts_delete" on shopping_carts
   for delete to authenticated using (auth.uid() = user_id);
 
--- Shopping cart items: accessible via cart ownership
+-- Shopping cart items: owner + shared members can read/write
 create policy "shopping_cart_items_select" on shopping_cart_items
   for select to authenticated using (
-    exists (select 1 from shopping_carts where id = cart_id and user_id = auth.uid())
+    exists (select 1 from shopping_carts sc where sc.id = cart_id
+      and (sc.user_id = auth.uid() or exists (select 1 from cart_shares cs where cs.cart_id = sc.id and cs.shared_with_user_id = auth.uid())))
   );
 
 create policy "shopping_cart_items_insert" on shopping_cart_items
   for insert to authenticated with check (
-    exists (select 1 from shopping_carts where id = cart_id and user_id = auth.uid())
+    exists (select 1 from shopping_carts sc where sc.id = cart_id
+      and (sc.user_id = auth.uid() or exists (select 1 from cart_shares cs where cs.cart_id = sc.id and cs.shared_with_user_id = auth.uid())))
   );
 
 create policy "shopping_cart_items_update" on shopping_cart_items
   for update to authenticated using (
-    exists (select 1 from shopping_carts where id = cart_id and user_id = auth.uid())
+    exists (select 1 from shopping_carts sc where sc.id = cart_id
+      and (sc.user_id = auth.uid() or exists (select 1 from cart_shares cs where cs.cart_id = sc.id and cs.shared_with_user_id = auth.uid())))
   );
 
 create policy "shopping_cart_items_delete" on shopping_cart_items
   for delete to authenticated using (
-    exists (select 1 from shopping_carts where id = cart_id and user_id = auth.uid())
+    exists (select 1 from shopping_carts sc where sc.id = cart_id
+      and (sc.user_id = auth.uid() or exists (select 1 from cart_shares cs where cs.cart_id = sc.id and cs.shared_with_user_id = auth.uid())))
   );
 
 -- Cart receipt images: accessible via cart ownership
@@ -426,6 +562,8 @@ grant execute on function public.get_my_role() to authenticated;
 grant execute on function public.validate_invite_code(text) to anon;
 grant execute on function public.validate_invite_code(text) to authenticated;
 grant execute on function public.consume_invite(text, uuid) to authenticated;
+grant execute on function public.join_cart_by_url(uuid) to authenticated;
+grant execute on function public.join_list_by_url(uuid) to authenticated;
 
 -- ============================================================
 -- SEED DATA

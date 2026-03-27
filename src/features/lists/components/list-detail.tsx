@@ -11,6 +11,12 @@ import {
   removeListItem,
   updateListItemQuantity,
 } from "@/features/lists/actions";
+import {
+  shareList,
+  getListShares,
+  revokeListShare,
+  type ListShareInfo,
+} from "@/features/lists/actions-shares";
 import { ProductSearch, type ProductResult } from "@/features/shopping/components/product-search";
 import { BarcodeScanner } from "@/features/shopping/components/barcode-scanner";
 import type { ShoppingList, ShoppingListItem, Product } from "@/types/database";
@@ -22,9 +28,11 @@ interface ListItemWithProduct extends ShoppingListItem {
 interface ListDetailProps {
   list: ShoppingList;
   items: ListItemWithProduct[];
+  isOwner?: boolean;
+  initialShares?: ListShareInfo[];
 }
 
-export function ListDetail({ list, items: initialItems }: ListDetailProps) {
+export function ListDetail({ list, items: initialItems, isOwner = true, initialShares = [] }: ListDetailProps) {
   const router = useRouter();
   const [items, setItems] = useState(initialItems);
   const [isPending, startTransition] = useTransition();
@@ -36,6 +44,14 @@ export function ListDetail({ list, items: initialItems }: ListDetailProps) {
   const [error, setError] = useState<string | null>(null);
   const [showScanner, setShowScanner] = useState(false);
   const [barcodeStatus, setBarcodeStatus] = useState<string | null>(null);
+
+  // Share panel
+  const [showSharePanel, setShowSharePanel] = useState(false);
+  const [shareEmail, setShareEmail] = useState("");
+  const [shares, setShares] = useState<ListShareInfo[]>(initialShares);
+  const [shareError, setShareError] = useState<string | null>(null);
+  const [shareLoading, startShareTransition] = useTransition();
+  const [urlCopied, setUrlCopied] = useState(false);
 
   // ── Barcode scan ────────────────────────────────────────────────────────
   async function handleBarcodeScan(barcode: string) {
@@ -146,6 +162,41 @@ export function ListDetail({ list, items: initialItems }: ListDetailProps) {
 
   const deleteItem = items.find((i) => i.id === deleteConfirm);
 
+  function handleShare(e: React.FormEvent) {
+    e.preventDefault();
+    setShareError(null);
+    const email = shareEmail.trim();
+    if (!email) return;
+    startShareTransition(async () => {
+      const result = await shareList(list.id, email);
+      if (result.error) {
+        setShareError(result.error);
+      } else {
+        setShareEmail("");
+        const updatedShares = await getListShares(list.id);
+        setShares(updatedShares);
+      }
+    });
+  }
+
+  function handleRevoke(shareId: string) {
+    startShareTransition(async () => {
+      await revokeListShare(shareId);
+      const updatedShares = await getListShares(list.id);
+      setShares(updatedShares);
+    });
+  }
+
+  function handleCopyUrl() {
+    const url = `${window.location.origin}/lists/join/${list.id}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setUrlCopied(true);
+      setTimeout(() => setUrlCopied(false), 2000);
+    }).catch(() => {
+      setUrlCopied(false);
+    });
+  }
+
   return (
     <div className="mx-auto max-w-2xl px-4 py-6 pb-24">
       {/* Back + title */}
@@ -158,22 +209,114 @@ export function ListDetail({ list, items: initialItems }: ListDetailProps) {
         </button>
         <div className="flex items-center justify-between gap-3">
           <h1 className="text-2xl font-bold text-gray-900">{list.name}</h1>
-          {items.length > 0 && (
-            <button
-              onClick={() => router.push(`/shopping?list=${list.id}`)}
-              className="flex shrink-0 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
-              </svg>
-              Start Shopping
-            </button>
-          )}
+          <div className="flex shrink-0 items-center gap-2">
+            {isOwner && (
+              <button
+                type="button"
+                onClick={() => setShowSharePanel((v) => !v)}
+                title="Share list"
+                className={`rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors ${
+                  showSharePanel
+                    ? "border-blue-200 bg-blue-50 text-blue-700"
+                    : "border-gray-200 text-gray-500 hover:border-gray-300 hover:text-gray-700"
+                }`}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                </svg>
+              </button>
+            )}
+            {items.length > 0 && (
+              <button
+                onClick={() => router.push(`/shopping?list=${list.id}`)}
+                className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
+                </svg>
+                Start Shopping
+              </button>
+            )}
+          </div>
         </div>
+
+        {/* Share panel */}
+        {showSharePanel && isOwner && (
+          <div className="mt-4 rounded-xl border border-blue-200 bg-white p-4 shadow-sm">
+            <h2 className="mb-3 text-sm font-semibold text-gray-900">Share this list</h2>
+            <form onSubmit={handleShare} className="mb-3 flex gap-2">
+              <input
+                type="email"
+                value={shareEmail}
+                onChange={(e) => setShareEmail(e.target.value)}
+                placeholder="Enter email address"
+                className="flex-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+              <button
+                type="submit"
+                disabled={shareLoading || !shareEmail.trim()}
+                className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                {shareLoading ? "..." : "Invite"}
+              </button>
+            </form>
+            {shareError && <p className="mb-2 text-xs text-red-600">{shareError}</p>}
+
+            {/* Shareable link */}
+            <div className="mb-3">
+              <p className="mb-1 text-xs text-gray-500">Or share a link — anyone who opens it can view this list.</p>
+              <div className="flex gap-1.5">
+                <input
+                  type="text"
+                  readOnly
+                  value={typeof window !== "undefined" ? `${window.location.origin}/lists/join/${list.id}` : ""}
+                  onFocus={(e) => e.target.select()}
+                  className="min-w-0 flex-1 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs text-blue-700 focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={handleCopyUrl}
+                  title="Copy link"
+                  className="shrink-0 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-blue-700 hover:bg-blue-100"
+                >
+                  {urlCopied ? (
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                  ) : (
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    </svg>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {shares.length > 0 ? (
+              <ul className="space-y-1">
+                {shares.map((share) => (
+                  <li key={share.id} className="flex items-center justify-between rounded bg-gray-50 px-3 py-1.5 text-sm">
+                    <span className="text-gray-700">{share.sharedWithEmail}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleRevoke(share.id)}
+                      disabled={shareLoading}
+                      className="text-xs text-red-500 hover:text-red-700 disabled:opacity-50"
+                    >
+                      Revoke
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-xs text-gray-500">No members yet. Invite someone by email or link.</p>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Add item form */}
-      <Card className="mb-6">
+      {/* Add item form — owner only */}
+      {isOwner && <Card className="mb-6">
         <form onSubmit={handleAddItem} className="space-y-3">
           {barcodeStatus && (
             <p className="text-xs font-medium text-emerald-600">{barcodeStatus}</p>
@@ -214,7 +357,7 @@ export function ListDetail({ list, items: initialItems }: ListDetailProps) {
             <Button type="submit" loading={isPending} className="flex-1">Add</Button>
           </div>
         </form>
-      </Card>
+      </Card>}
 
       {/* Item list */}
       {items.length === 0 ? (
@@ -228,7 +371,7 @@ export function ListDetail({ list, items: initialItems }: ListDetailProps) {
                   <p className="font-medium text-gray-900">
                     {item.products?.name ?? "Unknown product"}
                   </p>
-                  {editingItem === item.id ? (
+                  {isOwner && editingItem === item.id ? (
                     <div className="mt-1 flex items-center gap-2">
                       <Input
                         type="number"
@@ -244,16 +387,18 @@ export function ListDetail({ list, items: initialItems }: ListDetailProps) {
                     </div>
                   ) : (
                     <p
-                      className="cursor-pointer text-sm text-gray-500 hover:text-emerald-600"
-                      onClick={() => handleStartEdit(item.id, item.planned_quantity)}
+                      className={`text-sm text-gray-500 ${isOwner ? "cursor-pointer hover:text-emerald-600" : ""}`}
+                      onClick={() => isOwner && handleStartEdit(item.id, item.planned_quantity)}
                     >
                       Qty: {item.planned_quantity}
                     </p>
                   )}
                 </div>
-                <Button variant="danger" size="sm" onClick={() => setDeleteConfirm(item.id)}>
-                  Remove
-                </Button>
+                {isOwner && (
+                  <Button variant="danger" size="sm" onClick={() => setDeleteConfirm(item.id)}>
+                    Remove
+                  </Button>
+                )}
               </div>
             </Card>
           ))}

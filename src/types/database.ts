@@ -92,6 +92,7 @@ export interface Database {
           product_id: string;
           store_id: string;
           price: number;
+          original_price: number | null;
           quantity: number;
           created_at: string;
         };
@@ -100,6 +101,7 @@ export interface Database {
           product_id: string;
           store_id: string;
           price: number;
+          original_price?: number | null;
           quantity: number;
           created_at?: string;
         };
@@ -108,6 +110,7 @@ export interface Database {
           product_id?: string;
           store_id?: string;
           price?: number;
+          original_price?: number | null;
           quantity?: number;
           created_at?: string;
         };
@@ -332,6 +335,7 @@ export interface Database {
           product_name: string;
           product_barcode: string | null;
           price: number;
+          original_price: number | null;
           quantity: number;
           created_at: string;
         };
@@ -343,6 +347,7 @@ export interface Database {
           product_name: string;
           product_barcode?: string | null;
           price: number;
+          original_price?: number | null;
           quantity: number;
           created_at?: string;
         };
@@ -354,6 +359,7 @@ export interface Database {
           product_name?: string;
           product_barcode?: string | null;
           price?: number;
+          original_price?: number | null;
           quantity?: number;
           created_at?: string;
         };
@@ -409,6 +415,41 @@ export interface Database {
           },
         ];
       };
+      list_shares: {
+        Row: {
+          id: string;
+          list_id: string;
+          owner_id: string;
+          shared_with_email: string;
+          shared_with_user_id: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          list_id: string;
+          owner_id: string;
+          shared_with_email: string;
+          shared_with_user_id?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          list_id?: string;
+          owner_id?: string;
+          shared_with_email?: string;
+          shared_with_user_id?: string | null;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "list_shares_list_id_fkey";
+            columns: ["list_id"];
+            isOneToOne: false;
+            referencedRelation: "shopping_lists";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
     };
     Views: {
       latest_product_prices: {
@@ -434,6 +475,14 @@ export interface Database {
       consume_invite: {
         Args: { invite_code: string; user_id: string };
         Returns: boolean;
+      };
+      join_cart_by_url: {
+        Args: { p_cart_id: string };
+        Returns: { success?: boolean; ownerEmail?: string; error?: string };
+      };
+      join_list_by_url: {
+        Args: { p_list_id: string };
+        Returns: { success?: boolean; ownerEmail?: string; error?: string };
       };
     };
     Enums: {
@@ -497,6 +546,10 @@ export type ShoppingCartItemUpdate = TablesUpdate<"shopping_cart_items">;
 export type CartShare = Tables<"cart_shares">;
 export type CartShareInsert = TablesInsert<"cart_shares">;
 export type CartShareUpdate = TablesUpdate<"cart_shares">;
+
+export type ListShare = Tables<"list_shares">;
+export type ListShareInsert = TablesInsert<"list_shares">;
+export type ListShareUpdate = TablesUpdate<"list_shares">;
 
 export type LatestProductPrice = Views<"latest_product_prices">;
 

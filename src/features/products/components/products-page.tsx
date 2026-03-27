@@ -203,18 +203,31 @@ export function ProductsPage({ categories }: ProductsPageProps) {
                     </span>
                   )}
                 </div>
-                {product.latest_price !== null && (
-                  <div className="mt-3 flex items-center justify-between border-t border-gray-50 pt-2">
-                    <span className="text-lg font-semibold text-emerald-600">
-                      ${product.latest_price.toFixed(2)}
-                    </span>
-                    {product.latest_store_name && (
-                      <span className="text-xs text-gray-400">
-                        at {product.latest_store_name}
-                      </span>
-                    )}
-                  </div>
-                )}
+                {product.latest_price !== null && (() => {
+                  const hasDiscount = product.latest_original_price != null && product.latest_original_price > product.latest_price;
+                  return (
+                    <div className="mt-3 flex items-center justify-between border-t border-gray-50 pt-2">
+                      <div className="flex items-center gap-1.5">
+                        {hasDiscount && (
+                          <span className="text-sm text-gray-400 line-through">€{product.latest_original_price!.toFixed(2)}</span>
+                        )}
+                        <span className={`text-lg font-semibold ${hasDiscount ? "text-orange-600" : "text-emerald-600"}`}>
+                          €{product.latest_price.toFixed(2)}
+                        </span>
+                        {hasDiscount && (
+                          <span className="rounded bg-orange-100 px-1 py-0.5 text-xs font-medium text-orange-700">
+                            −{Math.round((1 - product.latest_price / product.latest_original_price!) * 100)}%
+                          </span>
+                        )}
+                      </div>
+                      {product.latest_store_name && (
+                        <span className="text-xs text-gray-400">
+                          at {product.latest_store_name}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })()}
               </button>
             </Card>
           ))}
@@ -262,29 +275,37 @@ export function ProductsPage({ categories }: ProductsPageProps) {
               <p className="text-sm text-gray-400">No price entries yet.</p>
             ) : (
               <div className="max-h-64 space-y-2 overflow-y-auto">
-                {selectedProduct.entries.map((entry) => (
-                  <div
-                    key={entry.id}
-                    className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2"
-                  >
-                    <div>
-                      <span className="font-medium text-gray-900">
-                        ${entry.price.toFixed(2)}
-                      </span>
-                      <span className="ml-2 text-sm text-gray-500">
-                        x{entry.quantity}
-                      </span>
+                {selectedProduct.entries.map((entry) => {
+                  const orig = entry.original_price;
+                  const hasDiscount = orig != null && orig > entry.price;
+                  return (
+                    <div
+                      key={entry.id}
+                      className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2"
+                    >
+                      <div>
+                        {hasDiscount ? (
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-sm text-gray-400 line-through">€{orig!.toFixed(2)}</span>
+                            <span className="font-medium text-orange-600">€{entry.price.toFixed(2)}</span>
+                            <span className="rounded bg-orange-100 px-1 py-0.5 text-xs font-medium text-orange-700">
+                              −{Math.round((1 - entry.price / orig!) * 100)}%
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="font-medium text-gray-900">€{entry.price.toFixed(2)}</span>
+                        )}
+                        <span className="ml-1 text-sm text-gray-500">x{entry.quantity}</span>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm text-gray-600">{entry.store_name}</p>
+                        <p className="text-xs text-gray-400">
+                          {new Date(entry.created_at).toLocaleDateString()}
+                        </p>
+                      </div>
                     </div>
-                    <div className="text-right">
-                      <p className="text-sm text-gray-600">
-                        {entry.store_name}
-                      </p>
-                      <p className="text-xs text-gray-400">
-                        {new Date(entry.created_at).toLocaleDateString()}
-                      </p>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

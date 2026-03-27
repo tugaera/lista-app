@@ -25,11 +25,22 @@ export default async function CartDetailRoute({
 
   if (!cart) redirect("/history");
 
-  const { data: items } = await supabase
+  let itemsResult = await supabase
     .from("shopping_cart_items")
-    .select("id, product_id, price, quantity, created_at, products ( name )")
+    .select("id, product_id, price, original_price, quantity, created_at, products ( name )")
     .eq("cart_id", id)
     .order("created_at", { ascending: true });
+
+  // Fallback if original_price column doesn't exist yet (migration 009)
+  if (itemsResult.error?.message?.includes("original_price")) {
+    itemsResult = await supabase
+      .from("shopping_cart_items")
+      .select("id, product_id, price, quantity, created_at, products ( name )")
+      .eq("cart_id", id)
+      .order("created_at", { ascending: true }) as typeof itemsResult;
+  }
+
+  const items = itemsResult.data;
 
   const { images: receiptImages } = await getCartReceiptImages(id);
 

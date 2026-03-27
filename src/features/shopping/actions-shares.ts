@@ -45,12 +45,14 @@ export async function shareCart(
     .eq("email", normalizedEmail)
     .maybeSingle();
 
+  if (!profile) return { error: "No account found with that email. The user must register first." };
+
   // Insert share
   const { error } = await supabase.from("cart_shares").insert({
     cart_id: cartId,
     owner_id: user.id,
     shared_with_email: normalizedEmail,
-    shared_with_user_id: profile?.id ?? null,
+    shared_with_user_id: profile.id,
   });
 
   if (error) {
@@ -104,6 +106,26 @@ export async function revokeCartShare(shareId: string): Promise<{ error?: string
 
   if (error) return { error: error.message };
   return {};
+}
+
+export async function joinCartByUrl(
+  cartId: string,
+): Promise<{ ownerEmail?: string; error?: string }> {
+  const supabase = await createServerSupabaseClient();
+
+  const { data, error } = await supabase.rpc("join_cart_by_url", {
+    p_cart_id: cartId,
+  });
+
+  if (error) return { error: error.message };
+
+  const result = data as { success?: boolean; ownerEmail?: string; error?: string };
+  if (result.error) {
+    if (result.error === "own_cart") return { error: "own_cart" };
+    return { error: result.error };
+  }
+
+  return { ownerEmail: result.ownerEmail };
 }
 
 export async function getSharedWithMeCarts(): Promise<SharedWithMeCart[]> {

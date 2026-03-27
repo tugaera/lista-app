@@ -8,6 +8,7 @@ export type CartItemDisplay = {
   productName: string;
   productBarcode: string | null;
   price: number;
+  originalPrice: number | null;
   quantity: number;
   subtotal: number;
   merged?: boolean;
@@ -36,6 +37,7 @@ export async function addCartItem(
   data: {
     productName: string;
     price: number;
+    originalPrice?: number | null;
     quantity: number;
     storeId: string;
     barcode?: string;
@@ -122,6 +124,7 @@ export async function addCartItem(
       .update({
         quantity: newQuantity,
         price: data.price,
+        original_price: data.originalPrice ?? null,
         product_name: data.productName,
         product_barcode: data.barcode ?? null,
         product_id: productId,
@@ -136,23 +139,27 @@ export async function addCartItem(
       productName: data.productName,
       productBarcode: data.barcode ?? null,
       price: data.price,
+      originalPrice: data.originalPrice ?? null,
       quantity: newQuantity,
       subtotal: data.price * newQuantity,
       merged: true,
     };
   }
 
-  // Insert new cart item
+  // Insert new cart item (original_price requires migration 009)
+  const insertPayload: Record<string, unknown> = {
+    cart_id: cartId,
+    product_id: productId,
+    product_name: data.productName,
+    product_barcode: data.barcode ?? null,
+    price: data.price,
+    quantity: data.quantity,
+  };
+  if (data.originalPrice != null) insertPayload.original_price = data.originalPrice;
+
   const { data: cartItem, error: cartItemError } = await supabase
     .from("shopping_cart_items")
-    .insert({
-      cart_id: cartId,
-      product_id: productId,
-      product_name: data.productName,
-      product_barcode: data.barcode ?? null,
-      price: data.price,
-      quantity: data.quantity,
-    })
+    .insert(insertPayload as never)
     .select("id")
     .single();
 
@@ -167,6 +174,7 @@ export async function addCartItem(
     productName: data.productName,
     productBarcode: data.barcode ?? null,
     price: data.price,
+    originalPrice: data.originalPrice ?? null,
     quantity: data.quantity,
     subtotal: data.price * data.quantity,
     merged: false,
@@ -283,7 +291,7 @@ export async function finalizeCart(
   // Fetch all cart items
   const { data: items } = await supabase
     .from("shopping_cart_items")
-    .select("id, product_id, product_name, product_barcode, price, quantity")
+    .select("id, product_id, product_name, product_barcode, price, original_price, quantity")
     .eq("cart_id", cartId);
 
   // For items where product_id is null: find-or-create product
@@ -339,12 +347,15 @@ export async function finalizeCart(
 
     // Create product_entry for price history (using cart's store_id)
     if (cart?.store_id && productId) {
-      await supabase.from("product_entries").insert({
+      const entryPayload: Record<string, unknown> = {
         product_id: productId,
         store_id: cart.store_id,
         price: item.price,
         quantity: item.quantity,
-      });
+      };
+      const itemOriginalPrice = (item as unknown as { original_price?: number | null }).original_price;
+      if (itemOriginalPrice != null) entryPayload.original_price = itemOriginalPrice;
+      await supabase.from("product_entries").insert(entryPayload as never);
     }
   }
 
@@ -370,9 +381,29 @@ export async function getCartItems(
 
   const { data, error } = await supabase
     .from("shopping_cart_items")
-    .select("id, product_id, product_name, product_barcode, price, quantity")
+    .select("id, product_id, product_name, product_barcode, price, original_price, quantity")
     .eq("cart_id", cartId)
     .order("created_at", { ascending: true });
+
+  // Fallback if migration 009 hasn't run yet (original_price column missing)
+  if (error?.message?.includes("original_price")) {
+    const { data: fallback, error: fallbackError } = await supabase
+      .from("shopping_cart_items")
+      .select("id, product_id, product_name, product_barcode, price, quantity")
+      .eq("cart_id", cartId)
+      .order("created_at", { ascending: true });
+    if (fallbackError) throw new Error(`Failed to fetch cart items: ${fallbackError.message}`);
+    return (fallback ?? []).map((item) => ({
+      id: item.id,
+      productId: item.product_id,
+      productName: item.product_name,
+      productBarcode: item.product_barcode,
+      price: item.price,
+      originalPrice: null,
+      quantity: item.quantity,
+      subtotal: item.price * item.quantity,
+    }));
+  }
 
   if (error) throw new Error(`Failed to fetch cart items: ${error.message}`);
 
@@ -382,6 +413,7 @@ export async function getCartItems(
     productName: item.product_name,
     productBarcode: item.product_barcode,
     price: item.price,
+    originalPrice: (item as unknown as { original_price?: number | null }).original_price ?? null,
     quantity: item.quantity,
     subtotal: item.price * item.quantity,
   }));

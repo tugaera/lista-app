@@ -61,6 +61,7 @@ export function ShoppingPage({
   const [shares, setShares] = useState<CartShareInfo[]>([]);
   const [shareError, setShareError] = useState<string | null>(null);
   const [shareLoading, startShareTransition] = useTransition();
+  const [urlCopied, setUrlCopied] = useState(false);
 
   // Realtime subscription for cart items
   useEffect(() => {
@@ -83,6 +84,7 @@ export function ShoppingPage({
             product_name: string;
             product_barcode: string | null;
             price: number;
+            original_price: number | null;
             quantity: number;
           };
           const newItem: CartItemDisplay = {
@@ -91,6 +93,7 @@ export function ShoppingPage({
             productName: row.product_name,
             productBarcode: row.product_barcode,
             price: row.price,
+            originalPrice: row.original_price ?? null,
             quantity: row.quantity,
             subtotal: row.price * row.quantity,
           };
@@ -115,6 +118,7 @@ export function ShoppingPage({
             product_name: string;
             product_barcode: string | null;
             price: number;
+            original_price: number | null;
             quantity: number;
           };
           setItems((prev) =>
@@ -126,6 +130,7 @@ export function ShoppingPage({
                     productName: row.product_name,
                     productBarcode: row.product_barcode,
                     price: row.price,
+                    originalPrice: row.original_price ?? null,
                     quantity: row.quantity,
                     subtotal: row.price * row.quantity,
                   }
@@ -163,10 +168,8 @@ export function ShoppingPage({
 
   const handleItemAdded = useCallback((item: CartItemDisplay) => {
     setItems((prev) => {
-      if (item.merged) {
-        const exists = prev.find((i) => i.id === item.id);
-        if (exists) return prev.map((i) => (i.id === item.id ? { ...item } : i));
-      }
+      const exists = prev.find((i) => i.id === item.id);
+      if (exists) return prev.map((i) => (i.id === item.id ? { ...item } : i));
       return [...prev, item];
     });
     setScannedBarcode(undefined);
@@ -257,6 +260,16 @@ export function ShoppingPage({
       await revokeCartShare(shareId);
       const updatedShares = await getCartShares(cartId);
       setShares(updatedShares);
+    });
+  }
+
+  function handleCopyUrl() {
+    const url = `${window.location.origin}/shopping/join/${cartId}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setUrlCopied(true);
+      setTimeout(() => setUrlCopied(false), 2000);
+    }).catch(() => {
+      setUrlCopied(false);
     });
   }
 
@@ -437,6 +450,37 @@ export function ShoppingPage({
             {shareError && (
               <p className="mb-2 text-xs text-red-600">{shareError}</p>
             )}
+
+            {/* Shareable link */}
+            <div className="mb-3">
+              <p className="mb-1 text-xs text-gray-500">Or share a link — anyone who opens it can join this cart.</p>
+              <div className="flex gap-1.5">
+                <input
+                  type="text"
+                  readOnly
+                  value={typeof window !== "undefined" ? `${window.location.origin}/shopping/join/${cartId}` : ""}
+                  onFocus={(e) => e.target.select()}
+                  className="min-w-0 flex-1 rounded-lg border border-purple-200 bg-purple-50 px-3 py-1.5 text-xs text-purple-700 focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={handleCopyUrl}
+                  title="Copy link"
+                  className="shrink-0 rounded-lg border border-purple-200 bg-purple-50 px-2.5 py-1.5 text-purple-700 hover:bg-purple-100"
+                >
+                  {urlCopied ? (
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                  ) : (
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    </svg>
+                  )}
+                </button>
+              </div>
+            </div>
+
             {shares.length > 0 ? (
               <ul className="space-y-1">
                 {shares.map((share) => (

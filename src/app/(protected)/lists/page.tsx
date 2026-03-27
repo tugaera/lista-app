@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { ListsPage } from "@/features/lists/components/lists-page";
+import { getSharedWithMeLists } from "@/features/lists/actions-shares";
 
 export default async function ListsRoute() {
   const supabase = await createServerSupabaseClient();
@@ -10,7 +11,8 @@ export default async function ListsRoute() {
 
   if (!user) redirect("/auth/login");
 
-  const { data: lists } = await supabase
+  // Fetch own lists
+  const { data: ownLists } = await supabase
     .from("shopping_lists")
     .select(
       `
@@ -24,12 +26,35 @@ export default async function ListsRoute() {
     .eq("user_id", user.id)
     .order("created_at", { ascending: false });
 
-  const displayLists = (lists ?? []).map((list) => ({
-    ...list,
+  // Fetch shared-with-me lists (includes owner email)
+  const sharedLists = await getSharedWithMeLists();
+
+  const ownDisplayLists = (ownLists ?? []).map((list) => ({
+    id: list.id,
+    user_id: list.user_id,
+    name: list.name,
+    created_at: list.created_at,
     item_count: Array.isArray(list.shopping_list_items)
       ? list.shopping_list_items.length
       : 0,
+    isOwner: true as const,
+    ownerEmail: null as null,
   }));
 
-  return <ListsPage lists={displayLists as never[]} />;
+  const sharedDisplayLists = sharedLists.map((s) => ({
+    id: s.listId,
+    user_id: "",
+    name: s.listName,
+    created_at: "",
+    item_count: 0,
+    isOwner: false as const,
+    ownerEmail: s.ownerEmail,
+  }));
+
+  return (
+    <ListsPage
+      lists={[...ownDisplayLists, ...sharedDisplayLists]}
+      userId={user.id}
+    />
+  );
 }

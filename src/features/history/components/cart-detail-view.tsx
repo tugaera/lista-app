@@ -18,6 +18,7 @@ interface CartItem {
   cart_id?: string;
   product_id: string;
   price: number;
+  original_price?: number | null;
   quantity: number;
   created_at?: string;
   products: { name: string } | null;
@@ -377,14 +378,27 @@ export function CartDetailView({
         <div className="space-y-3">
           {items.map((item) => {
             const subtotal = item.price * item.quantity;
+            const hasDiscount = item.original_price != null && item.original_price > item.price;
+            const discountPct = hasDiscount
+              ? Math.round((1 - item.price / item.original_price!) * 100)
+              : 0;
             return (
               <Card key={item.id}>
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="font-medium text-gray-900">{item.products?.name ?? "Unknown product"}</p>
-                    <p className="text-sm text-gray-500">
-                      €{item.price.toFixed(2)} x {item.quantity}
-                    </p>
+                    <div className="flex items-center gap-1.5">
+                      {hasDiscount ? (
+                        <>
+                          <span className="text-sm text-gray-400 line-through">€{item.original_price!.toFixed(2)}</span>
+                          <span className="text-sm font-medium text-orange-600">€{item.price.toFixed(2)}</span>
+                          <span className="rounded bg-orange-100 px-1 py-0.5 text-xs font-medium text-orange-700">−{discountPct}%</span>
+                          <span className="text-sm text-gray-400">x {item.quantity}</span>
+                        </>
+                      ) : (
+                        <span className="text-sm text-gray-500">€{item.price.toFixed(2)} x {item.quantity}</span>
+                      )}
+                    </div>
                   </div>
                   <p className="font-semibold text-gray-900">€{subtotal.toFixed(2)}</p>
                 </div>
@@ -397,7 +411,7 @@ export function CartDetailView({
       <Card className="mt-6">
         <div className="flex items-center justify-between">
           <p className="text-lg font-bold text-gray-900">Total</p>
-          <p className="text-lg font-bold text-emerald-600">${cart.total.toFixed(2)}</p>
+          <p className="text-lg font-bold text-emerald-600">€{cart.total.toFixed(2)}</p>
         </div>
       </Card>
 

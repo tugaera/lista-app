@@ -12,6 +12,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 type PriceEntry = {
   store: string;
   price: number;
+  originalPrice: number | null;
   date: string;
 };
 
@@ -24,6 +25,12 @@ type CartItemListProps = {
 
 export function CartItemList({ items, cartId, onItemRemoved, onItemUpdated }: CartItemListProps) {
   const total = items.reduce((sum, item) => sum + item.subtotal, 0);
+  const totalSavings = items.reduce((sum, item) => {
+    if (item.originalPrice && item.originalPrice > item.price) {
+      return sum + (item.originalPrice - item.price) * item.quantity;
+    }
+    return sum;
+  }, 0);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [isDeleting, startDeleteTransition] = useTransition();
 
@@ -63,6 +70,12 @@ export function CartItemList({ items, cartId, onItemRemoved, onItemUpdated }: Ca
             ))}
           </ul>
           <div className="sticky bottom-24 border-t border-gray-200 bg-white px-4 py-3">
+            {totalSavings > 0.001 && (
+              <div className="mb-1 flex items-center justify-between">
+                <span className="text-xs text-emerald-600">Total savings</span>
+                <span className="text-xs font-semibold text-emerald-600">−€{totalSavings.toFixed(2)}</span>
+              </div>
+            )}
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium text-gray-600">Total</span>
               <span className="text-lg font-bold text-gray-900">€{total.toFixed(2)}</span>
@@ -107,7 +120,7 @@ function PriceHistoryPopover({
       // Get the latest price per store (most recent entry for each store)
       const { data } = await supabase
         .from("product_entries")
-        .select("price, created_at, stores(name)")
+        .select("price, original_price, created_at, stores(name)")
         .eq("product_id", productId)
         .order("created_at", { ascending: false })
         .limit(50);
@@ -122,7 +135,12 @@ function PriceHistoryPopover({
           const storeName = (row.stores as unknown as { name: string } | null)?.name ?? "Unknown";
           if (!seen.has(storeName)) {
             seen.add(storeName);
-            deduped.push({ store: storeName, price: row.price, date: row.created_at });
+            deduped.push({
+              store: storeName,
+              price: row.price,
+              originalPrice: (row as unknown as { original_price?: number | null }).original_price ?? null,
+              date: row.created_at,
+            });
           }
         }
         // Sort by price ascending
@@ -195,9 +213,14 @@ function PriceHistoryPopover({
                     })}
                   </p>
                 </div>
-                <span className={`ml-2 shrink-0 text-sm font-bold ${i === 0 ? "text-emerald-700" : "text-gray-700"}`}>
-                  €{e.price.toFixed(2)}
-                </span>
+                <div className="ml-2 shrink-0 text-right">
+                  {e.originalPrice != null && e.originalPrice > e.price && (
+                    <p className="text-xs text-gray-400 line-through">€{e.originalPrice.toFixed(2)}</p>
+                  )}
+                  <span className={`text-sm font-bold ${e.originalPrice != null && e.originalPrice > e.price ? "text-orange-600" : i === 0 ? "text-emerald-700" : "text-gray-700"}`}>
+                    €{e.price.toFixed(2)}
+                  </span>
+                </div>
               </li>
             ))}
           </ul>
@@ -249,9 +272,25 @@ function CartItemRow({
     <li className={`relative flex items-center gap-3 px-4 py-3 ${isPending ? "opacity-50" : ""}`}>
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium text-gray-900">{item.productName}</p>
-        <p className="text-xs text-gray-500">
-          &euro;{item.price.toFixed(2)} each
-        </p>
+        <div className="flex items-center gap-1.5">
+          {item.originalPrice && item.originalPrice > item.price ? (
+            <>
+              <span className="text-xs text-gray-400 line-through">
+                &euro;{item.originalPrice.toFixed(2)}
+              </span>
+              <span className="text-xs font-medium text-orange-600">
+                &euro;{item.price.toFixed(2)}
+              </span>
+              <span className="rounded bg-orange-100 px-1 py-0.5 text-xs font-medium text-orange-700">
+                −{Math.round((1 - item.price / item.originalPrice) * 100)}%
+              </span>
+            </>
+          ) : (
+            <span className="text-xs text-gray-500">
+              &euro;{item.price.toFixed(2)} each
+            </span>
+          )}
+        </div>
       </div>
 
       <div className="flex items-center gap-1.5">

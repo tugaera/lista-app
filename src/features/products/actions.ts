@@ -7,6 +7,7 @@ import type { Product, Category, ProductEntry } from "@/types/database";
 export interface ProductWithLatestPrice extends Product {
   category_name: string | null;
   latest_price: number | null;
+  latest_original_price: number | null;
   latest_store_name: string | null;
   is_active: boolean;
 }
@@ -35,17 +36,34 @@ export async function searchProducts(
 
   const productIds = products.map((p) => p.id);
 
-  const { data: latestPrices } = await supabase
-    .from("latest_product_prices")
-    .select("id, product_id, store_id, price, quantity, created_at, product_name, barcode, store_name")
-    .in("product_id", productIds);
+  // Query product_entries directly (includes original_price from migration 010)
+  let latestEntries = await supabase
+    .from("product_entries")
+    .select("product_id, price, original_price, created_at, stores(name)")
+    .in("product_id", productIds)
+    .order("created_at", { ascending: false });
 
-  const priceMap = new Map(
-    (latestPrices ?? []).map((lp) => [lp.product_id, lp])
-  );
+  // Fallback if original_price column doesn't exist yet (migration 010)
+  if (latestEntries.error?.message?.includes("original_price")) {
+    latestEntries = await supabase
+      .from("product_entries")
+      .select("product_id, price, created_at, stores(name)")
+      .in("product_id", productIds)
+      .order("created_at", { ascending: false }) as typeof latestEntries;
+  }
+
+  // Keep only the most recent entry per product
+  const priceMap = new Map<string, Record<string, unknown>>();
+  for (const entry of (latestEntries.data ?? []) as unknown as Record<string, unknown>[]) {
+    const pid = entry.product_id as string;
+    if (!priceMap.has(pid)) {
+      priceMap.set(pid, entry);
+    }
+  }
 
   const results: ProductWithLatestPrice[] = products.map((p) => {
     const latest = priceMap.get(p.id);
+    const store = latest?.stores as { name: string } | null;
     const cat = p.categories as unknown as { name: string } | null;
     return {
       id: p.id,
@@ -55,8 +73,9 @@ export async function searchProducts(
       is_active: p.is_active,
       created_at: p.created_at,
       category_name: cat?.name ?? null,
-      latest_price: latest?.price ?? null,
-      latest_store_name: latest?.store_name ?? null,
+      latest_price: (latest?.price as number) ?? null,
+      latest_original_price: (latest?.original_price as number) ?? null,
+      latest_store_name: store?.name ?? null,
     };
   });
 
@@ -81,12 +100,27 @@ export async function getProductByBarcode(
     return { data: null, error: error.message };
   }
 
-  const { data: latestEntry } = await supabase
-    .from("latest_product_prices")
-    .select("id, product_id, store_id, price, quantity, created_at, product_name, barcode, store_name")
+  let latestResult = await supabase
+    .from("product_entries")
+    .select("product_id, price, original_price, created_at, stores(name)")
     .eq("product_id", product.id)
+    .order("created_at", { ascending: false })
     .limit(1)
     .single();
+
+  // Fallback if original_price column doesn't exist yet
+  if (latestResult.error?.message?.includes("original_price")) {
+    latestResult = await supabase
+      .from("product_entries")
+      .select("product_id, price, created_at, stores(name)")
+      .eq("product_id", product.id)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .single() as typeof latestResult;
+  }
+
+  const latestEntry = latestResult.data as Record<string, unknown> | null;
+  const latestStore = latestEntry?.stores as { name: string } | null;
 
   const cat = product.categories as unknown as { name: string } | null;
 
@@ -99,8 +133,9 @@ export async function getProductByBarcode(
       is_active: product.is_active,
       created_at: product.created_at,
       category_name: cat?.name ?? null,
-      latest_price: latestEntry?.price ?? null,
-      latest_store_name: latestEntry?.store_name ?? null,
+      latest_price: (latestEntry?.price as number) ?? null,
+      latest_original_price: (latestEntry?.original_price as number) ?? null,
+      latest_store_name: latestStore?.name ?? null,
     },
     error: null,
   };
@@ -163,15 +198,26 @@ export async function getProductWithHistory(
     return { data: null, error: productError.message };
   }
 
-  const { data: entries, error: entriesError } = await supabase
+  let entriesResult = await supabase
     .from("product_entries")
-    .select("id, product_id, store_id, price, quantity, created_at, stores(name)")
+    .select("id, product_id, store_id, price, original_price, quantity, created_at, stores(name)")
     .eq("product_id", productId)
     .order("created_at", { ascending: false });
 
-  if (entriesError) {
-    return { data: null, error: entriesError.message };
+  // Fallback if original_price column doesn't exist yet (migration 010)
+  if (entriesResult.error?.message?.includes("original_price")) {
+    entriesResult = await supabase
+      .from("product_entries")
+      .select("id, product_id, store_id, price, quantity, created_at, stores(name)")
+      .eq("product_id", productId)
+      .order("created_at", { ascending: false }) as typeof entriesResult;
   }
+
+  if (entriesResult.error) {
+    return { data: null, error: entriesResult.error.message };
+  }
+
+  const entries = entriesResult.data;
 
   const cat = product.categories as unknown as { name: string } | null;
 
@@ -182,6 +228,7 @@ export async function getProductWithHistory(
       product_id: e.product_id,
       store_id: e.store_id,
       price: e.price,
+      original_price: (e as unknown as { original_price?: number | null }).original_price ?? null,
       quantity: e.quantity,
       created_at: e.created_at,
       store_name: store?.name ?? "Unknown",
@@ -230,9 +277,16 @@ export async function getAdminProducts(query: string = ""): Promise<{
         .from("latest_product_prices")
         .select("product_id, price, store_name")
         .in("product_id", productIds)
+        .order("created_at", { ascending: false })
     : { data: [] };
 
-  const priceMap = new Map((latestPrices ?? []).map((lp) => [lp.product_id, lp]));
+  // Keep only the most recent price per product
+  const priceMap = new Map<string, { product_id: string; price: number; store_name: string }>();
+  for (const lp of latestPrices ?? []) {
+    if (!priceMap.has(lp.product_id)) {
+      priceMap.set(lp.product_id, lp);
+    }
+  }
 
   return {
     data: (products ?? []).map((p) => {
@@ -247,6 +301,7 @@ export async function getAdminProducts(query: string = ""): Promise<{
         created_at: p.created_at,
         category_name: cat?.name ?? null,
         latest_price: latest?.price ?? null,
+        latest_original_price: null,
         latest_store_name: latest?.store_name ?? null,
       };
     }),
