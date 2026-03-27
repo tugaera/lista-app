@@ -8,6 +8,8 @@ import { Modal } from "@/components/ui/modal";
 import { Spinner } from "@/components/ui/spinner";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useDebounce } from "@/hooks/useDebounce";
+import { BarcodeScanner } from "@/features/shopping/components/barcode-scanner";
+import { lookupBarcode } from "@/lib/barcode-lookup";
 import {
   searchProducts,
   createProduct,
@@ -33,6 +35,8 @@ export function ProductsPage({ categories }: ProductsPageProps) {
   const [addOpen, setAddOpen] = useState(false);
   const [addLoading, setAddLoading] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
+  const [addScanning, setAddScanning] = useState(false);
+  const [addLookupStatus, setAddLookupStatus] = useState<string | null>(null);
 
   // Add product form state
   const [newName, setNewName] = useState("");
@@ -87,11 +91,28 @@ export function ProductsPage({ categories }: ProductsPageProps) {
     setNewName("");
     setNewBarcode("");
     setNewCategoryId("");
+    setAddLookupStatus(null);
     setAddLoading(false);
 
     // Refresh search results
     if (debouncedQuery.length >= 2 || debouncedQuery.length === 0) {
       doSearch(debouncedQuery);
+    }
+  }
+
+  async function handleBarcodeScan(barcode: string) {
+    setAddScanning(false);
+    setNewBarcode(barcode);
+    setAddLookupStatus("Looking up barcode…");
+    const result = await lookupBarcode(barcode);
+    if (result.found) {
+      setNewName(result.name);
+      setAddLookupStatus(`Already in DB: "${result.name}"`);
+    } else if (result.name) {
+      setNewName(result.name);
+      setAddLookupStatus(`Found on Open Food Facts: "${result.name}"`);
+    } else {
+      setAddLookupStatus("Product not found — enter the name below");
     }
   }
 
@@ -271,27 +292,64 @@ export function ProductsPage({ categories }: ProductsPageProps) {
       </Modal>
 
       {/* Add Product Modal */}
+      {addScanning && (
+        <BarcodeScanner
+          onScan={handleBarcodeScan}
+          onClose={() => setAddScanning(false)}
+        />
+      )}
       <Modal
         open={addOpen}
         onClose={() => {
           setAddOpen(false);
           setAddError(null);
+          setAddLookupStatus(null);
         }}
         title="Add Product"
       >
         <div className="space-y-4">
+          {/* Barcode first so scanning auto-fills name */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-medium text-gray-700">
+              Barcode{" "}
+              <span className="font-normal text-gray-400">(scan to auto-fill name)</span>
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={newBarcode}
+                onChange={(e) => setNewBarcode(e.target.value)}
+                placeholder="Optional"
+                className="min-w-0 flex-1 rounded-xl border border-gray-300 px-4 py-2 font-mono text-sm text-gray-900 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+              />
+              <button
+                type="button"
+                onClick={() => setAddScanning(true)}
+                className="flex items-center gap-1.5 rounded-xl border border-gray-300 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4">
+                  <path strokeLinecap="round" strokeLinejoin="round"
+                    d="M3 9V5a2 2 0 012-2h2M3 15v4a2 2 0 002 2h2M15 3h4a2 2 0 012 2v4M15 21h4a2 2 0 002-2v-4" />
+                  <line x1="7" y1="8" x2="7" y2="16" />
+                  <line x1="10" y1="8" x2="10" y2="16" />
+                  <line x1="13" y1="8" x2="13" y2="16" />
+                  <line x1="16" y1="8" x2="16" y2="16" />
+                </svg>
+                Scan
+              </button>
+            </div>
+            {addLookupStatus && (
+              <p className={`text-xs ${addLookupStatus.startsWith("Already") ? "text-amber-600" : "text-emerald-600"}`}>
+                {addLookupStatus}
+              </p>
+            )}
+          </div>
           <Input
             label="Name"
             placeholder="Product name"
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
             error={addError ?? undefined}
-          />
-          <Input
-            label="Barcode (optional)"
-            placeholder="e.g. 1234567890123"
-            value={newBarcode}
-            onChange={(e) => setNewBarcode(e.target.value)}
           />
           <div className="flex flex-col gap-1.5">
             <label className="text-sm font-medium text-gray-700">
@@ -316,6 +374,7 @@ export function ProductsPage({ categories }: ProductsPageProps) {
               onClick={() => {
                 setAddOpen(false);
                 setAddError(null);
+                setAddLookupStatus(null);
               }}
             >
               Cancel
