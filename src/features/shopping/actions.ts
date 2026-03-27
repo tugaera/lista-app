@@ -4,13 +4,12 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 export type CartItemDisplay = {
   id: string;
-  productId: string;
+  productId: string | null;
   productName: string;
+  productBarcode: string | null;
   price: number;
   quantity: number;
-  storeName: string;
   subtotal: number;
-  productEntryId?: string;
   merged?: boolean;
 };
 
@@ -49,28 +48,18 @@ export async function addCartItem(
 
   if (!user) throw new Error("Not authenticated");
 
-  // Find or create product (by barcode first, then by name)
-  let productId: string;
+  // Try to find existing product (read-only, no INSERT)
+  let productId: string | null = null;
 
   if (data.barcode) {
     const { data: existingByBarcode } = await supabase
       .from("products")
       .select("id")
       .eq("barcode", data.barcode)
-      .single();
+      .maybeSingle();
 
     if (existingByBarcode) {
       productId = existingByBarcode.id;
-    } else {
-      const { data: newProduct, error: productError } = await supabase
-        .from("products")
-        .insert({ name: data.productName, barcode: data.barcode })
-        .select("id")
-        .single();
-
-      if (productError)
-        throw new Error(`Failed to create product: ${productError.message}`);
-      productId = newProduct.id;
     }
   } else {
     const { data: existingByName } = await supabase
@@ -78,59 +67,89 @@ export async function addCartItem(
       .select("id")
       .ilike("name", data.productName)
       .limit(1)
-      .single();
+      .maybeSingle();
 
     if (existingByName) {
       productId = existingByName.id;
-    } else {
-      const { data: newProduct, error: productError } = await supabase
-        .from("products")
-        .insert({ name: data.productName })
-        .select("id")
-        .single();
-
-      if (productError)
-        throw new Error(`Failed to create product: ${productError.message}`);
-      productId = newProduct.id;
     }
   }
 
-  // Check if the same product is already in this cart — if so, merge quantities
-  const { data: existingCartItems } = await supabase
+  // Deduplication: check existing cart items
+  // 1. By barcode first
+  // 2. Then by product_id
+  // 3. Then by product_name (case-insensitive)
+  const { data: existingItems } = await supabase
     .from("shopping_cart_items")
-    .select("id, quantity")
-    .eq("cart_id", cartId)
-    .eq("product_id", productId);
+    .select("id, quantity, product_barcode, product_id, product_name")
+    .eq("cart_id", cartId);
 
-  const existingItem = existingCartItems?.[0];
+  let existingItemId: string | null = null;
+  let existingQuantity = 0;
 
-  if (existingItem) {
-    const newQuantity = existingItem.quantity + data.quantity;
+  if (existingItems && existingItems.length > 0) {
+    let match = null;
+
+    if (data.barcode) {
+      match = existingItems.find(
+        (item) => item.product_barcode === data.barcode,
+      );
+    }
+
+    if (!match && productId) {
+      match = existingItems.find(
+        (item) => item.product_id === productId,
+      );
+    }
+
+    if (!match) {
+      match = existingItems.find(
+        (item) =>
+          item.product_name.toLowerCase() === data.productName.toLowerCase(),
+      );
+    }
+
+    if (match) {
+      existingItemId = match.id;
+      existingQuantity = match.quantity;
+    }
+  }
+
+  // Merge quantity if duplicate found
+  if (existingItemId) {
+    const newQuantity = existingQuantity + data.quantity;
     await supabase
       .from("shopping_cart_items")
-      .update({ quantity: newQuantity, price: data.price })
-      .eq("id", existingItem.id);
+      .update({
+        quantity: newQuantity,
+        price: data.price,
+        product_name: data.productName,
+        product_barcode: data.barcode ?? null,
+        product_id: productId,
+      })
+      .eq("id", existingItemId);
 
     await recalculateCartTotal(cartId);
 
     return {
-      id: existingItem.id,
+      id: existingItemId,
       productId,
       productName: data.productName,
+      productBarcode: data.barcode ?? null,
       price: data.price,
       quantity: newQuantity,
-      storeName: "",
       subtotal: data.price * newQuantity,
       merged: true,
     };
   }
 
-  // Insert cart item with product_id + price directly (no product_entries yet)
+  // Insert new cart item
   const { data: cartItem, error: cartItemError } = await supabase
     .from("shopping_cart_items")
     .insert({
       cart_id: cartId,
       product_id: productId,
+      product_name: data.productName,
+      product_barcode: data.barcode ?? null,
       price: data.price,
       quantity: data.quantity,
     })
@@ -146,9 +165,9 @@ export async function addCartItem(
     id: cartItem.id,
     productId,
     productName: data.productName,
+    productBarcode: data.barcode ?? null,
     price: data.price,
     quantity: data.quantity,
-    storeName: "",
     subtotal: data.price * data.quantity,
     merged: false,
   };
@@ -213,7 +232,7 @@ export async function getActiveCart(
     .is("finalized_at", null)
     .order("created_at", { ascending: false })
     .limit(1)
-    .single();
+    .maybeSingle();
 
   if (existingCart) return existingCart;
 
@@ -253,7 +272,7 @@ export async function finalizeCart(
 
   if (!user) throw new Error("Not authenticated");
 
-  // Get cart with store_id and all items
+  // Get cart with store_id
   const { data: cart } = await supabase
     .from("shopping_carts")
     .select("store_id")
@@ -261,22 +280,71 @@ export async function finalizeCart(
     .eq("user_id", user.id)
     .single();
 
-  // Create product_entries for each item (price history recorded at checkout)
-  if (cart?.store_id) {
-    const { data: items } = await supabase
-      .from("shopping_cart_items")
-      .select("product_id, price, quantity")
-      .eq("cart_id", cartId);
+  // Fetch all cart items
+  const { data: items } = await supabase
+    .from("shopping_cart_items")
+    .select("id, product_id, product_name, product_barcode, price, quantity")
+    .eq("cart_id", cartId);
 
-    if (items && items.length > 0) {
-      await supabase.from("product_entries").insert(
-        items.map((item) => ({
-          product_id: item.product_id,
-          store_id: cart.store_id!,
-          price: item.price,
-          quantity: item.quantity,
-        })),
-      );
+  // For items where product_id is null: find-or-create product
+  for (const item of items ?? []) {
+    let productId = item.product_id;
+
+    if (!productId) {
+      // Try find by barcode first
+      if (item.product_barcode) {
+        const { data: byBarcode } = await supabase
+          .from("products")
+          .select("id")
+          .eq("barcode", item.product_barcode)
+          .maybeSingle();
+
+        if (byBarcode) productId = byBarcode.id;
+      }
+
+      // Try find by name
+      if (!productId) {
+        const { data: byName } = await supabase
+          .from("products")
+          .select("id")
+          .ilike("name", item.product_name)
+          .limit(1)
+          .maybeSingle();
+
+        if (byName) productId = byName.id;
+      }
+
+      // Create product if still not found
+      if (!productId) {
+        const { data: newProduct } = await supabase
+          .from("products")
+          .insert({
+            name: item.product_name,
+            barcode: item.product_barcode ?? undefined,
+          })
+          .select("id")
+          .single();
+
+        if (newProduct) productId = newProduct.id;
+      }
+
+      // Update cart item with product_id
+      if (productId) {
+        await supabase
+          .from("shopping_cart_items")
+          .update({ product_id: productId })
+          .eq("id", item.id);
+      }
+    }
+
+    // Create product_entry for price history (using cart's store_id)
+    if (cart?.store_id && productId) {
+      await supabase.from("product_entries").insert({
+        product_id: productId,
+        store_id: cart.store_id,
+        price: item.price,
+        quantity: item.quantity,
+      });
     }
   }
 
@@ -302,27 +370,24 @@ export async function getCartItems(
 
   const { data, error } = await supabase
     .from("shopping_cart_items")
-    .select("id, product_id, price, quantity, products ( name )")
+    .select("id, product_id, product_name, product_barcode, price, quantity")
     .eq("cart_id", cartId)
     .order("created_at", { ascending: true });
 
   if (error) throw new Error(`Failed to fetch cart items: ${error.message}`);
 
-  return (data ?? []).map((item) => {
-    const product = item.products as unknown as { name: string };
-    return {
-      id: item.id,
-      productId: item.product_id,
-      productName: product.name,
-      price: item.price,
-      quantity: item.quantity,
-      storeName: "",
-      subtotal: item.price * item.quantity,
-    };
-  });
+  return (data ?? []).map((item) => ({
+    id: item.id,
+    productId: item.product_id,
+    productName: item.product_name,
+    productBarcode: item.product_barcode,
+    price: item.price,
+    quantity: item.quantity,
+    subtotal: item.price * item.quantity,
+  }));
 }
 
-async function recalculateCartTotal(cartId: string): Promise<void> {
+export async function recalculateCartTotal(cartId: string): Promise<void> {
   const supabase = await createServerSupabaseClient();
 
   const { data: items } = await supabase

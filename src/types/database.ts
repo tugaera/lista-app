@@ -324,27 +324,33 @@ export interface Database {
         Row: {
           id: string;
           cart_id: string;
-          product_id: string;
-          price: number;
+          product_id: string | null;
           product_entry_id: string | null;
+          product_name: string;
+          product_barcode: string | null;
+          price: number;
           quantity: number;
           created_at: string;
         };
         Insert: {
           id?: string;
           cart_id: string;
-          product_id: string;
-          price: number;
+          product_id?: string | null;
           product_entry_id?: string | null;
+          product_name: string;
+          product_barcode?: string | null;
+          price: number;
           quantity: number;
           created_at?: string;
         };
         Update: {
           id?: string;
           cart_id?: string;
-          product_id?: string;
-          price?: number;
+          product_id?: string | null;
           product_entry_id?: string | null;
+          product_name?: string;
+          product_barcode?: string | null;
+          price?: number;
           quantity?: number;
           created_at?: string;
         };
@@ -361,6 +367,41 @@ export interface Database {
             columns: ["product_id"];
             isOneToOne: false;
             referencedRelation: "products";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      cart_shares: {
+        Row: {
+          id: string;
+          cart_id: string;
+          owner_id: string;
+          shared_with_email: string;
+          shared_with_user_id: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          cart_id: string;
+          owner_id: string;
+          shared_with_email: string;
+          shared_with_user_id?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          cart_id?: string;
+          owner_id?: string;
+          shared_with_email?: string;
+          shared_with_user_id?: string | null;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "cart_shares_cart_id_fkey";
+            columns: ["cart_id"];
+            isOneToOne: false;
+            referencedRelation: "shopping_carts";
             referencedColumns: ["id"];
           },
         ];
@@ -449,6 +490,10 @@ export type ShoppingCartUpdate = TablesUpdate<"shopping_carts">;
 export type ShoppingCartItem = Tables<"shopping_cart_items">;
 export type ShoppingCartItemInsert = TablesInsert<"shopping_cart_items">;
 export type ShoppingCartItemUpdate = TablesUpdate<"shopping_cart_items">;
+
+export type CartShare = Tables<"cart_shares">;
+export type CartShareInsert = TablesInsert<"cart_shares">;
+export type CartShareUpdate = TablesUpdate<"cart_shares">;
 
 export type LatestProductPrice = Views<"latest_product_prices">;
 

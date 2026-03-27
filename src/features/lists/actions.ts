@@ -236,6 +236,8 @@ export async function convertListToCart(listId: string) {
       return {
         cart_id: cart.id,
         product_id: listItem.product_id,
+        product_name: entry.product_name,
+        product_barcode: entry.barcode ?? null,
         price: entry.price,
         quantity: listItem.planned_quantity,
       };
@@ -243,6 +245,8 @@ export async function convertListToCart(listId: string) {
     .filter(Boolean) as {
     cart_id: string;
     product_id: string;
+    product_name: string;
+    product_barcode: string | null;
     price: number;
     quantity: number;
   }[];

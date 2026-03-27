@@ -4,16 +4,11 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/card";
 import { ImportReceiptModal } from "./import-receipt-modal";
-import type { ShoppingCart } from "@/types/database";
+import type { CartHistoryEntry } from "@/features/history/actions";
 import type { Store } from "@/features/stores/actions";
 
-interface CartWithCount extends ShoppingCart {
-  item_count: number;
-  store_name?: string | null;
-}
-
 interface HistoryPageProps {
-  carts: CartWithCount[];
+  carts: CartHistoryEntry[];
   stores: Store[];
 }
 
@@ -63,13 +58,23 @@ export function HistoryPage({ carts, stores }: HistoryPageProps) {
                         {cart.store_name}
                       </span>
                     )}
+                    {cart.is_shared && (
+                      <span className="rounded-full bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-700">
+                        Shared
+                      </span>
+                    )}
                   </div>
                   <p className="mt-0.5 text-sm text-gray-500">
                     {cart.item_count} {cart.item_count === 1 ? "item" : "items"}
+                    {cart.is_shared && cart.owner_email && (
+                      <span className="ml-1 text-purple-600">
+                        &middot; by {cart.owner_email}
+                      </span>
+                    )}
                   </p>
                 </div>
                 <p className="text-lg font-bold text-emerald-600">
-                  €{cart.total.toFixed(2)}
+                  &euro;{cart.total.toFixed(2)}
                 </p>
               </div>
             </Card>

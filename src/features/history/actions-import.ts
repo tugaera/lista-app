@@ -111,7 +111,7 @@ export async function importReceiptAsCart(params: {
     // Create cart item directly with price (product_entries created via finalizeCart pattern)
     const { error: itemErr } = await supabase
       .from("shopping_cart_items")
-      .insert({ cart_id: cart.id, product_id: productId, price: item.unit_price, quantity: item.quantity });
+      .insert({ cart_id: cart.id, product_id: productId, product_name: cleanName, price: item.unit_price, quantity: item.quantity });
 
     if (itemErr) continue;
 

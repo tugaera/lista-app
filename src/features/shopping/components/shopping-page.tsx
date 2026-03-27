@@ -1,14 +1,17 @@
 "use client";
 
-import { useCallback, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { CartItemDisplay } from "@/features/shopping/actions";
 import { finalizeCart, updateCartStore } from "@/features/shopping/actions";
+import type { CartShareInfo, SharedWithMeCart } from "@/features/shopping/actions-shares";
+import { shareCart, getCartShares, revokeCartShare } from "@/features/shopping/actions-shares";
 import { getListWithItems } from "@/features/lists/actions";
 import { CartItemList } from "./cart-item-list";
 import { QuickAddForm } from "./quick-add-form";
 import { BarcodeScanner } from "./barcode-scanner";
 import { ListTrackingPanel, type TrackingItem } from "./list-tracking-panel";
+import { createBrowserSupabaseClient } from "@/lib/supabase/client";
 
 type Store = { id: string; name: string; is_active?: boolean };
 type ListPreview = { id: string; name: string; item_count: number };
@@ -20,6 +23,9 @@ type ShoppingPageProps = {
   stores: Store[];
   lists: ListPreview[];
   initialTrackingList: { id: string; name: string; items: TrackingItem[] } | null;
+  sharedWithMeCarts?: SharedWithMeCart[];
+  isSharedCart?: boolean;
+  ownerEmail?: string;
 };
 
 export function ShoppingPage({
@@ -29,6 +35,9 @@ export function ShoppingPage({
   stores,
   lists,
   initialTrackingList,
+  sharedWithMeCarts = [],
+  isSharedCart = false,
+  ownerEmail,
 }: ShoppingPageProps) {
   const router = useRouter();
   const [items, setItems] = useState<CartItemDisplay[]>(initialItems);
@@ -45,6 +54,112 @@ export function ShoppingPage({
   );
   const [showListPicker, setShowListPicker] = useState(false);
   const [loadingList, setLoadingList] = useState(false);
+
+  // Share panel
+  const [showSharePanel, setShowSharePanel] = useState(false);
+  const [shareEmail, setShareEmail] = useState("");
+  const [shares, setShares] = useState<CartShareInfo[]>([]);
+  const [shareError, setShareError] = useState<string | null>(null);
+  const [shareLoading, startShareTransition] = useTransition();
+
+  // Realtime subscription for cart items
+  useEffect(() => {
+    const supabase = createBrowserSupabaseClient();
+
+    const channel = supabase
+      .channel(`cart-items-${cartId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "shopping_cart_items",
+          filter: `cart_id=eq.${cartId}`,
+        },
+        (payload) => {
+          const row = payload.new as {
+            id: string;
+            product_id: string | null;
+            product_name: string;
+            product_barcode: string | null;
+            price: number;
+            quantity: number;
+          };
+          const newItem: CartItemDisplay = {
+            id: row.id,
+            productId: row.product_id,
+            productName: row.product_name,
+            productBarcode: row.product_barcode,
+            price: row.price,
+            quantity: row.quantity,
+            subtotal: row.price * row.quantity,
+          };
+          setItems((prev) => {
+            if (prev.find((i) => i.id === newItem.id)) return prev;
+            return [...prev, newItem];
+          });
+        },
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "shopping_cart_items",
+          filter: `cart_id=eq.${cartId}`,
+        },
+        (payload) => {
+          const row = payload.new as {
+            id: string;
+            product_id: string | null;
+            product_name: string;
+            product_barcode: string | null;
+            price: number;
+            quantity: number;
+          };
+          setItems((prev) =>
+            prev.map((item) =>
+              item.id === row.id
+                ? {
+                    ...item,
+                    productId: row.product_id,
+                    productName: row.product_name,
+                    productBarcode: row.product_barcode,
+                    price: row.price,
+                    quantity: row.quantity,
+                    subtotal: row.price * row.quantity,
+                  }
+                : item,
+            ),
+          );
+        },
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "DELETE",
+          schema: "public",
+          table: "shopping_cart_items",
+          filter: `cart_id=eq.${cartId}`,
+        },
+        (payload) => {
+          const row = payload.old as { id: string };
+          setItems((prev) => prev.filter((item) => item.id !== row.id));
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [cartId]);
+
+  // Load shares when panel opens
+  useEffect(() => {
+    if (showSharePanel) {
+      getCartShares(cartId).then(setShares);
+    }
+  }, [showSharePanel, cartId]);
 
   const handleItemAdded = useCallback((item: CartItemDisplay) => {
     setItems((prev) => {
@@ -119,6 +234,32 @@ export function ShoppingPage({
     router.refresh();
   }
 
+  function handleShare(e: React.FormEvent) {
+    e.preventDefault();
+    setShareError(null);
+    const email = shareEmail.trim();
+    if (!email) return;
+
+    startShareTransition(async () => {
+      const result = await shareCart(cartId, email);
+      if (result.error) {
+        setShareError(result.error);
+      } else {
+        setShareEmail("");
+        const updatedShares = await getCartShares(cartId);
+        setShares(updatedShares);
+      }
+    });
+  }
+
+  function handleRevoke(shareId: string) {
+    startShareTransition(async () => {
+      await revokeCartShare(shareId);
+      const updatedShares = await getCartShares(cartId);
+      setShares(updatedShares);
+    });
+  }
+
   const total = items.reduce((sum, item) => sum + item.subtotal, 0);
   const selectedStore = stores.find((s) => s.id === storeId);
 
@@ -136,7 +277,7 @@ export function ShoppingPage({
           {checkoutDone.storeName && (
             <p className="mb-2 text-sm font-medium text-emerald-600">{checkoutDone.storeName}</p>
           )}
-          <p className="mb-1 text-3xl font-bold text-gray-900">€{checkoutDone.total.toFixed(2)}</p>
+          <p className="mb-1 text-3xl font-bold text-gray-900">&euro;{checkoutDone.total.toFixed(2)}</p>
           <p className="mb-6 text-sm text-gray-500">
             {items.length} {items.length === 1 ? "item" : "items"} saved to history
           </p>
@@ -202,7 +343,7 @@ export function ShoppingPage({
           {items.length > 0 && (
             <>
               <span className="shrink-0 text-sm font-semibold text-gray-700">
-                €{total.toFixed(2)}
+                &euro;{total.toFixed(2)}
               </span>
               <button
                 onClick={() => setShowCheckout(true)}
@@ -218,8 +359,109 @@ export function ShoppingPage({
           <span className="shrink-0 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
             {items.length}
           </span>
+
+          {/* Share button (only for own carts) */}
+          {!isSharedCart && (
+            <button
+              type="button"
+              onClick={() => setShowSharePanel((v) => !v)}
+              title="Share cart"
+              className={`shrink-0 rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors ${
+                showSharePanel
+                  ? "border-purple-200 bg-purple-50 text-purple-700"
+                  : "border-gray-200 text-gray-500 hover:border-gray-300 hover:text-gray-700"
+              }`}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+              </svg>
+            </button>
+          )}
         </div>
       </header>
+
+      {/* Shared cart banner */}
+      {isSharedCart && ownerEmail && (
+        <div className="mx-auto w-full max-w-lg px-4 pt-3">
+          <div className="rounded-lg bg-purple-50 px-4 py-2 text-sm text-purple-700">
+            Shopping with <span className="font-medium">{ownerEmail}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Shared-with-me invitations */}
+      {sharedWithMeCarts.length > 0 && (
+        <div className="mx-auto w-full max-w-lg px-4 pt-3 space-y-2">
+          {sharedWithMeCarts.map((shared) => (
+            <div
+              key={shared.cartId}
+              className="flex items-center justify-between rounded-lg bg-blue-50 px-4 py-2 text-sm"
+            >
+              <span className="text-blue-800">
+                You&apos;re invited to{" "}
+                <span className="font-medium">{shared.ownerEmail || "a shared"}</span>
+                &apos;s cart
+              </span>
+              <a
+                href={`/shopping?cart=${shared.cartId}`}
+                className="ml-3 rounded bg-blue-600 px-2 py-1 text-xs font-medium text-white hover:bg-blue-700"
+              >
+                Join
+              </a>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Share panel */}
+      {showSharePanel && (
+        <div className="mx-auto w-full max-w-lg px-4 pt-3">
+          <div className="rounded-lg border border-purple-200 bg-white p-4 shadow-sm">
+            <h2 className="mb-3 text-sm font-semibold text-gray-900">Share this cart</h2>
+            <form onSubmit={handleShare} className="mb-3 flex gap-2">
+              <input
+                type="email"
+                value={shareEmail}
+                onChange={(e) => setShareEmail(e.target.value)}
+                placeholder="Enter email address"
+                className="flex-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500"
+              />
+              <button
+                type="submit"
+                disabled={shareLoading || !shareEmail.trim()}
+                className="rounded-lg bg-purple-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50"
+              >
+                {shareLoading ? "..." : "Invite"}
+              </button>
+            </form>
+            {shareError && (
+              <p className="mb-2 text-xs text-red-600">{shareError}</p>
+            )}
+            {shares.length > 0 ? (
+              <ul className="space-y-1">
+                {shares.map((share) => (
+                  <li
+                    key={share.id}
+                    className="flex items-center justify-between rounded bg-gray-50 px-3 py-1.5 text-sm"
+                  >
+                    <span className="text-gray-700">{share.sharedWithEmail}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleRevoke(share.id)}
+                      disabled={shareLoading}
+                      className="text-xs text-red-500 hover:text-red-700 disabled:opacity-50"
+                    >
+                      Revoke
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-xs text-gray-500">No members yet. Invite someone by email.</p>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* List tracking panel — sticky below header */}
       {trackingList && (
@@ -333,8 +575,8 @@ export function ShoppingPage({
           <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
             <h3 className="mb-1 text-lg font-semibold text-gray-900">Finish shopping?</h3>
             <p className="mb-1 text-sm text-gray-500">
-              {items.length} {items.length === 1 ? "item" : "items"} ·{" "}
-              <span className="font-semibold text-gray-700">€{total.toFixed(2)}</span>
+              {items.length} {items.length === 1 ? "item" : "items"} &middot;{" "}
+              <span className="font-semibold text-gray-700">&euro;{total.toFixed(2)}</span>
             </p>
             {selectedStore && (
               <p className="mb-4 text-sm font-medium text-emerald-600">{selectedStore.name}</p>

@@ -250,36 +250,38 @@ function CartItemRow({
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium text-gray-900">{item.productName}</p>
         <p className="text-xs text-gray-500">
-          €{item.price.toFixed(2)} each · {item.storeName}
+          &euro;{item.price.toFixed(2)} each
         </p>
       </div>
 
       <div className="flex items-center gap-1.5">
-        {/* Price history icon */}
-        <div className="relative">
-          <button
-            type="button"
-            onClick={() => setShowPrices((v) => !v)}
-            className={`rounded-md p-1 transition-colors ${
-              showPrices
-                ? "bg-emerald-100 text-emerald-600"
-                : "text-gray-300 hover:bg-emerald-50 hover:text-emerald-500"
-            }`}
-            title="View prices across stores"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-            </svg>
-          </button>
+        {/* Price history icon — only shown when product_id is known */}
+        {item.productId && (
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setShowPrices((v) => !v)}
+              className={`rounded-md p-1 transition-colors ${
+                showPrices
+                  ? "bg-emerald-100 text-emerald-600"
+                  : "text-gray-300 hover:bg-emerald-50 hover:text-emerald-500"
+              }`}
+              title="View prices across stores"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+              </svg>
+            </button>
 
-          {showPrices && (
-            <PriceHistoryPopover
-              productId={item.productId}
-              productName={item.productName}
-              onClose={() => setShowPrices(false)}
-            />
-          )}
-        </div>
+            {showPrices && (
+              <PriceHistoryPopover
+                productId={item.productId}
+                productName={item.productName}
+                onClose={() => setShowPrices(false)}
+              />
+            )}
+          </div>
+        )}
 
         {/* Quantity */}
         {isEditing ? (
