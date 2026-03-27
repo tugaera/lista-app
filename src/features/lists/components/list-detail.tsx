@@ -127,8 +127,15 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
               : item,
           ),
         );
-      } else {
-        router.refresh();
+      } else if (result && "item" in result && result.item) {
+        const newItem = result.item as ListItemWithProduct;
+        setItems((prev) => [
+          ...prev,
+          {
+            ...newItem,
+            products: { id: newItem.product_id, name: result.productName ?? name, barcode: null },
+          },
+        ]);
       }
 
       setProductName("");
