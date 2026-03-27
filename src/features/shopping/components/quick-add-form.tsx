@@ -257,6 +257,7 @@ export function QuickAddForm({
           initialPrice={originalPrice !== null ? originalPrice : (parseFloat(price) || undefined)}
           initialFinalPrice={originalPrice !== null ? (parseFloat(price) || undefined) : undefined}
           onConfirm={handleDiscountApply}
+          onReset={() => setOriginalPrice(null)}
           onClose={() => setShowDiscountModal(false)}
         />
       )}

@@ -11,6 +11,7 @@ interface DiscountModalProps {
   initialPrice?: number;      // original (pre-discount) price
   initialFinalPrice?: number; // final (post-discount) price, when re-opening an existing discount
   onConfirm: (result: DiscountResult) => void;
+  onReset?: () => void;       // called when user removes the discount
   onClose: () => void;
 }
 
@@ -35,8 +36,13 @@ function recalculate(
   const pct  = parse("pct");
   const amt  = parse("amount");
 
-  if (changed === "original" || changed === "pct") {
-    if (orig !== null && pct !== null) {
+  if (changed === "original") {
+    // When changing original price, keep final price fixed and recalculate discount
+    if (orig !== null && fin !== null) {
+      const a = orig - fin;
+      next.amount = fmt(Math.max(0, a));
+      if (orig > 0) next.pct = fmtPct((Math.max(0, a) / orig) * 100);
+    } else if (orig !== null && pct !== null) {
       const f = orig * (1 - pct / 100);
       next.final  = fmt(f);
       next.amount = fmt(orig - f);
@@ -44,10 +50,14 @@ function recalculate(
       const f = orig - amt;
       next.final = fmt(f);
       if (orig > 0) next.pct = fmtPct(((orig - f) / orig) * 100);
-    } else if (orig !== null && fin !== null && changed === "original") {
-      const a = orig - fin;
-      next.amount = fmt(Math.max(0, a));
-      if (orig > 0) next.pct = fmtPct((Math.max(0, a) / orig) * 100);
+    }
+  }
+
+  if (changed === "pct") {
+    if (orig !== null && pct !== null) {
+      const f = orig * (1 - pct / 100);
+      next.final  = fmt(f);
+      next.amount = fmt(orig - f);
     }
   }
 
@@ -82,7 +92,7 @@ function recalculate(
   return next;
 }
 
-export function DiscountModal({ initialPrice, initialFinalPrice, onConfirm, onClose }: DiscountModalProps) {
+export function DiscountModal({ initialPrice, initialFinalPrice, onConfirm, onReset, onClose }: DiscountModalProps) {
   const origStr  = initialPrice      != null && !isNaN(initialPrice)      ? initialPrice.toFixed(2)      : "";
   const finalStr = initialFinalPrice != null && !isNaN(initialFinalPrice) ? initialFinalPrice.toFixed(2) : origStr;
 
@@ -243,7 +253,17 @@ export function DiscountModal({ initialPrice, initialFinalPrice, onConfirm, onCl
           </div>
         )}
 
-        <div className="mt-4 flex gap-3">
+        {onReset && initialFinalPrice != null && (
+          <button
+            type="button"
+            onClick={() => { onReset(); onClose(); }}
+            className="mt-4 w-full rounded-xl border border-red-200 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50"
+          >
+            Remove Discount
+          </button>
+        )}
+
+        <div className="mt-3 flex gap-3">
           <button
             type="button"
             onClick={onClose}
