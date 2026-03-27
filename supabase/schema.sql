@@ -415,6 +415,10 @@ create policy "products_update" on products
   using (get_my_role() in ('admin', 'moderator'))
   with check (get_my_role() in ('admin', 'moderator'));
 
+create policy "products_delete" on products
+  for delete to authenticated
+  using (get_my_role() in ('admin', 'moderator'));
+
 -- Product entries: readable/insertable by all authenticated
 create policy "product_entries_select" on product_entries
   for select to authenticated using (true);
