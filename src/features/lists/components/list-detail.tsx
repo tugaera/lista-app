@@ -45,8 +45,8 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
   const [error, setError] = useState<string | null>(null);
   const [showScanner, setShowScanner] = useState(false);
   const [barcodeStatus, setBarcodeStatus] = useState<string | null>(null);
-  const [scannedBarcode, setScannedBarcode] = useState<string | null>(null);
-  const settingNameFromScan = useRef(false);
+  const scannedBarcodeRef = useRef<string | null>(null);
+  const scannedNameRef = useRef<string | null>(null);
 
   // Share panel
   const [showSharePanel, setShowSharePanel] = useState(false);
@@ -60,7 +60,8 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
   async function handleBarcodeScan(barcode: string) {
     setShowScanner(false);
     setBarcodeStatus("Looking up barcode…");
-    setScannedBarcode(barcode);
+    scannedBarcodeRef.current = barcode;
+    scannedNameRef.current = null;
 
     try {
       const { createBrowserSupabaseClient } = await import("@/lib/supabase/client");
@@ -74,7 +75,7 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
         .single();
 
       if (product) {
-        settingNameFromScan.current = true;
+        scannedNameRef.current = product.name;
         setProductName(product.name);
         setBarcodeStatus(`Found: ${product.name}`);
       } else {
@@ -86,31 +87,32 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
             const p = json.product;
             const name = p.product_name_pt || p.generic_name_pt || p.product_name || p.generic_name || "";
             if (name) {
-              settingNameFromScan.current = true;
+              scannedNameRef.current = name;
               setProductName(name);
               setBarcodeStatus(`Found: ${name}`);
             } else {
-              setScannedBarcode(null);
+              scannedBarcodeRef.current = null;
               setBarcodeStatus("Product found but no name — type it below");
             }
           } else {
-            setScannedBarcode(null);
+            scannedBarcodeRef.current = null;
             setBarcodeStatus("Product not found — type name below");
           }
         } catch {
-          setScannedBarcode(null);
+          scannedBarcodeRef.current = null;
           setBarcodeStatus("Could not search online — type name below");
         }
       }
     } catch {
-      setScannedBarcode(null);
+      scannedBarcodeRef.current = null;
       setBarcodeStatus("Error looking up barcode");
     }
   }
 
   function handleProductSelect(product: ProductResult) {
     setProductName(product.name);
-    setScannedBarcode(null);
+    scannedBarcodeRef.current = null;
+    scannedNameRef.current = null;
     setBarcodeStatus(null);
   }
 
@@ -121,7 +123,10 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
 
     const name = productName.trim();
     const qty = Number(quantity) || 1;
-    const barcode = scannedBarcode ?? undefined;
+    // Only pass barcode if the name still matches what the scan returned (user didn't change it)
+    const barcode = scannedBarcodeRef.current && scannedNameRef.current === name
+      ? scannedBarcodeRef.current
+      : undefined;
 
     startTransition(async () => {
       const result = await addListItem(list.id, name, qty, barcode ? { barcode } : undefined);
@@ -154,7 +159,8 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
 
       setProductName("");
       setQuantity("1");
-      setScannedBarcode(null);
+      scannedBarcodeRef.current = null;
+      scannedNameRef.current = null;
       setBarcodeStatus(null);
     });
   }
@@ -353,12 +359,7 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
                 value={productName}
                 onValueChange={(v) => {
                   setProductName(v);
-                  if (settingNameFromScan.current) {
-                    settingNameFromScan.current = false;
-                  } else {
-                    setScannedBarcode(null);
-                    setBarcodeStatus(null);
-                  }
+                  setBarcodeStatus(null);
                 }}
               />
             </div>
