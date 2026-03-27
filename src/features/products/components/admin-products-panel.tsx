@@ -205,13 +205,6 @@ export function AdminProductsPanel({ categories }: AdminProductsPanelProps) {
       {/* Header */}
       <div className="flex items-center justify-between">
         <p className="text-sm text-gray-500">{products.length} products</p>
-        <button
-          type="button"
-          onClick={() => { setShowAdd(true); setAddError(null); setAddLookupStatus(null); }}
-          className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700"
-        >
-          + Add Product
-        </button>
       </div>
 
       {/* Search */}
