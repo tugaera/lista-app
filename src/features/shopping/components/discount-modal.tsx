@@ -36,8 +36,13 @@ function recalculate(
   const pct  = parse("pct");
   const amt  = parse("amount");
 
-  if (changed === "original" || changed === "pct") {
-    if (orig !== null && pct !== null) {
+  if (changed === "original") {
+    // When changing original price, keep final price fixed and recalculate discount
+    if (orig !== null && fin !== null) {
+      const a = orig - fin;
+      next.amount = fmt(Math.max(0, a));
+      if (orig > 0) next.pct = fmtPct((Math.max(0, a) / orig) * 100);
+    } else if (orig !== null && pct !== null) {
       const f = orig * (1 - pct / 100);
       next.final  = fmt(f);
       next.amount = fmt(orig - f);
@@ -45,10 +50,14 @@ function recalculate(
       const f = orig - amt;
       next.final = fmt(f);
       if (orig > 0) next.pct = fmtPct(((orig - f) / orig) * 100);
-    } else if (orig !== null && fin !== null && changed === "original") {
-      const a = orig - fin;
-      next.amount = fmt(Math.max(0, a));
-      if (orig > 0) next.pct = fmtPct((Math.max(0, a) / orig) * 100);
+    }
+  }
+
+  if (changed === "pct") {
+    if (orig !== null && pct !== null) {
+      const f = orig * (1 - pct / 100);
+      next.final  = fmt(f);
+      next.amount = fmt(orig - f);
     }
   }
 
