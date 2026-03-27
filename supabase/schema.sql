@@ -54,9 +54,10 @@ create table categories (
 
 -- Stores
 create table stores (
-  id uuid primary key default uuid_generate_v4(),
-  name text not null unique,
-  is_active boolean not null default true,
+  id         uuid primary key default uuid_generate_v4(),
+  name       text not null unique,
+  is_active  boolean not null default true,
+  sort_order integer,          -- null = no priority, sorted alphabetically after numbered stores
   created_at timestamptz not null default now()
 );
 

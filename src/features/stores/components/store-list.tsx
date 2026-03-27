@@ -7,6 +7,7 @@ import type { Store } from "@/features/stores/actions";
 import {
   createStore,
   updateStoreName,
+  updateStoreSortOrder,
   toggleStoreActive,
 } from "@/features/stores/actions";
 
@@ -64,6 +65,12 @@ function StoreRow({ store }: { store: Store }) {
   const [isToggling, startToggle] = useTransition();
   const [confirmToggle, setConfirmToggle] = useState(false);
 
+  // Sort order — always visible, saves on blur/Enter
+  const [sortOrderValue, setSortOrderValue] = useState(
+    store.sort_order != null ? String(store.sort_order) : "",
+  );
+  const [isSavingOrder, startSaveOrder] = useTransition();
+
   const handleSave = useCallback(() => {
     startSave(async () => {
       const result = await updateStoreName(store.id, editName);
@@ -83,6 +90,14 @@ function StoreRow({ store }: { store: Store }) {
     });
   }, [store.id, store.is_active]);
 
+  const handleSortOrderSave = useCallback(() => {
+    const parsed = sortOrderValue.trim() === "" ? null : parseInt(sortOrderValue, 10);
+    const value = parsed != null && isNaN(parsed) ? null : parsed;
+    startSaveOrder(async () => {
+      await updateStoreSortOrder(store.id, value);
+    });
+  }, [store.id, sortOrderValue]);
+
   return (
     <>
       <div
@@ -90,6 +105,23 @@ function StoreRow({ store }: { store: Store }) {
           store.is_active ? "border-gray-200 bg-white" : "border-gray-100 bg-gray-50"
         }`}
       >
+        {/* Sort order input */}
+        <div className="flex shrink-0 flex-col items-center">
+          <input
+            type="number"
+            min="1"
+            value={sortOrderValue}
+            onChange={(e) => setSortOrderValue(e.target.value)}
+            onBlur={handleSortOrderSave}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.currentTarget.blur(); } }}
+            placeholder="—"
+            title="Priority order (leave empty for alphabetical)"
+            disabled={isSavingOrder}
+            className="w-10 rounded border border-gray-200 bg-gray-50 px-1 py-0.5 text-center text-xs text-gray-500 focus:border-emerald-400 focus:bg-white focus:outline-none disabled:opacity-40"
+          />
+          <span className="mt-0.5 text-[9px] text-gray-300">order</span>
+        </div>
+
         {/* Status dot */}
         <span
           className={`h-2 w-2 shrink-0 rounded-full ${store.is_active ? "bg-emerald-400" : "bg-gray-300"}`}

@@ -7,6 +7,7 @@ export type Store = {
   id: string;
   name: string;
   is_active: boolean;
+  sort_order: number | null;
   created_at: string;
 };
 
@@ -15,7 +16,8 @@ export async function getStores(): Promise<{ stores: Store[]; error?: string }> 
 
   const { data, error } = await supabase
     .from("stores")
-    .select("id, name, is_active, created_at")
+    .select("id, name, is_active, sort_order, created_at")
+    .order("sort_order", { ascending: true, nullsFirst: false })
     .order("name", { ascending: true });
 
   if (error) return { stores: [], error: error.message };
@@ -60,6 +62,22 @@ export async function updateStoreName(
     return { error: error.message };
   }
 
+  revalidatePath("/admin");
+  return {};
+}
+
+export async function updateStoreSortOrder(
+  storeId: string,
+  sortOrder: number | null,
+): Promise<{ error?: string }> {
+  const supabase = await createServerSupabaseClient();
+
+  const { error } = await supabase
+    .from("stores")
+    .update({ sort_order: sortOrder })
+    .eq("id", storeId);
+
+  if (error) return { error: error.message };
   revalidatePath("/admin");
   return {};
 }
