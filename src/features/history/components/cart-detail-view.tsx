@@ -15,19 +15,12 @@ import {
 
 interface CartItem {
   id: string;
-  cart_id: string;
-  product_entry_id: string;
+  cart_id?: string;
+  product_id: string;
+  price: number;
   quantity: number;
-  created_at: string;
-  product_entries: {
-    id: string;
-    price: number;
-    quantity: number;
-    product_id: string;
-    store_id: string;
-    products: { name: string } | null;
-    stores: { name: string } | null;
-  } | null;
+  created_at?: string;
+  products: { name: string } | null;
 }
 
 interface CartDetailViewProps {
@@ -383,19 +376,17 @@ export function CartDetailView({
       ) : (
         <div className="space-y-3">
           {items.map((item) => {
-            const entry = item.product_entries;
-            const price = entry?.price ?? 0;
-            const subtotal = price * item.quantity;
+            const subtotal = item.price * item.quantity;
             return (
               <Card key={item.id}>
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="font-medium text-gray-900">{entry?.products?.name ?? "Unknown product"}</p>
+                    <p className="font-medium text-gray-900">{item.products?.name ?? "Unknown product"}</p>
                     <p className="text-sm text-gray-500">
-                      {entry?.stores?.name ?? "Unknown store"} &middot; ${price.toFixed(2)} x {item.quantity}
+                      €{item.price.toFixed(2)} x {item.quantity}
                     </p>
                   </div>
-                  <p className="font-semibold text-gray-900">${subtotal.toFixed(2)}</p>
+                  <p className="font-semibold text-gray-900">€{subtotal.toFixed(2)}</p>
                 </div>
               </Card>
             );

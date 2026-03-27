@@ -324,21 +324,27 @@ export interface Database {
         Row: {
           id: string;
           cart_id: string;
-          product_entry_id: string;
+          product_id: string;
+          price: number;
+          product_entry_id: string | null;
           quantity: number;
           created_at: string;
         };
         Insert: {
           id?: string;
           cart_id: string;
-          product_entry_id: string;
+          product_id: string;
+          price: number;
+          product_entry_id?: string | null;
           quantity: number;
           created_at?: string;
         };
         Update: {
           id?: string;
           cart_id?: string;
-          product_entry_id?: string;
+          product_id?: string;
+          price?: number;
+          product_entry_id?: string | null;
           quantity?: number;
           created_at?: string;
         };
@@ -351,10 +357,10 @@ export interface Database {
             referencedColumns: ["id"];
           },
           {
-            foreignKeyName: "shopping_cart_items_product_entry_id_fkey";
-            columns: ["product_entry_id"];
+            foreignKeyName: "shopping_cart_items_product_id_fkey";
+            columns: ["product_id"];
             isOneToOne: false;
-            referencedRelation: "product_entries";
+            referencedRelation: "products";
             referencedColumns: ["id"];
           },
         ];

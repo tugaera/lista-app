@@ -61,9 +61,7 @@ export async function getCartDetail(cartId: string) {
 
   const { data: items, error: itemsError } = await supabase
     .from("shopping_cart_items")
-    .select(
-      "id, cart_id, product_entry_id, quantity, created_at, product_entries(id, price, quantity, product_id, store_id, products(name), stores(name))"
-    )
+    .select("id, cart_id, product_id, price, quantity, created_at, products ( name )")
     .eq("cart_id", cartId)
     .order("created_at", { ascending: true });
 

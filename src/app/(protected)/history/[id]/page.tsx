@@ -27,17 +27,7 @@ export default async function CartDetailRoute({
 
   const { data: items } = await supabase
     .from("shopping_cart_items")
-    .select(
-      `
-      id,
-      quantity,
-      product_entries (
-        price,
-        products ( name ),
-        stores ( name )
-      )
-    `
-    )
+    .select("id, product_id, price, quantity, created_at, products ( name )")
     .eq("cart_id", id)
     .order("created_at", { ascending: true });
 

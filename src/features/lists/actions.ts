@@ -226,7 +226,7 @@ export async function convertListToCart(listId: string) {
     return { error: cartError?.message || "Failed to create cart" };
   }
 
-  // Create cart items from latest entries
+  // Create cart items using product_id + last known price directly
   const cartItems = listItems
     .map((listItem) => {
       const entry = latestEntries?.find(
@@ -235,13 +235,15 @@ export async function convertListToCart(listId: string) {
       if (!entry) return null;
       return {
         cart_id: cart.id,
-        product_entry_id: entry.id,
+        product_id: listItem.product_id,
+        price: entry.price,
         quantity: listItem.planned_quantity,
       };
     })
     .filter(Boolean) as {
     cart_id: string;
-    product_entry_id: string;
+    product_id: string;
+    price: number;
     quantity: number;
   }[];
 

@@ -108,19 +108,17 @@ export async function importReceiptAsCart(params: {
       productId = newProduct.id;
     }
 
-    // Create product_entry (price record)
-    const { data: entry, error: entryErr } = await supabase
-      .from("product_entries")
-      .insert({ product_id: productId, store_id: storeId, price: item.unit_price, quantity: item.quantity })
-      .select("id")
-      .single();
-
-    if (entryErr) continue;
-
-    // Create cart_item
-    await supabase
+    // Create cart item directly with price (product_entries created via finalizeCart pattern)
+    const { error: itemErr } = await supabase
       .from("shopping_cart_items")
-      .insert({ cart_id: cart.id, product_entry_id: entry.id, quantity: item.quantity });
+      .insert({ cart_id: cart.id, product_id: productId, price: item.unit_price, quantity: item.quantity });
+
+    if (itemErr) continue;
+
+    // Also record in product_entries immediately since this is a finalized import
+    await supabase
+      .from("product_entries")
+      .insert({ product_id: productId, store_id: storeId, price: item.unit_price, quantity: item.quantity });
   }
 
   return { cartId: cart.id };

@@ -126,10 +126,13 @@ create index idx_shopping_carts_active on shopping_carts (user_id, finalized_at)
 
 -- Shopping Cart Items
 create table shopping_cart_items (
-  id uuid primary key default uuid_generate_v4(),
-  cart_id uuid not null references shopping_carts(id) on delete cascade,
-  product_entry_id uuid not null references product_entries(id) on delete cascade,
-  quantity numeric(10, 3) not null default 1 check (quantity > 0),
+  id         uuid primary key default uuid_generate_v4(),
+  cart_id    uuid not null references shopping_carts(id) on delete cascade,
+  product_id uuid not null references products(id),
+  price      numeric(10, 2) not null,
+  -- legacy column kept nullable for old rows; new inserts leave it null
+  product_entry_id uuid references product_entries(id) on delete set null,
+  quantity   numeric(10, 3) not null default 1 check (quantity > 0),
   created_at timestamptz not null default now()
 );
 
