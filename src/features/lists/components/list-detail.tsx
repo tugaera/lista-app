@@ -23,6 +23,7 @@ import type { ShoppingList, ShoppingListItem, Product } from "@/types/database";
 
 interface ListItemWithProduct extends ShoppingListItem {
   products: Pick<Product, "id" | "name" | "barcode"> | null;
+  product_name?: string | null;
 }
 
 interface ListDetailProps {
@@ -44,6 +45,7 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
   const [error, setError] = useState<string | null>(null);
   const [showScanner, setShowScanner] = useState(false);
   const [barcodeStatus, setBarcodeStatus] = useState<string | null>(null);
+  const [scannedBarcode, setScannedBarcode] = useState<string | null>(null);
 
   // Share panel
   const [showSharePanel, setShowSharePanel] = useState(false);
@@ -57,6 +59,7 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
   async function handleBarcodeScan(barcode: string) {
     setShowScanner(false);
     setBarcodeStatus("Looking up barcode…");
+    setScannedBarcode(barcode);
 
     try {
       const { createBrowserSupabaseClient } = await import("@/lib/supabase/client");
@@ -84,22 +87,27 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
               setProductName(name);
               setBarcodeStatus(`Found: ${name}`);
             } else {
+              setScannedBarcode(null);
               setBarcodeStatus("Product found but no name — type it below");
             }
           } else {
+            setScannedBarcode(null);
             setBarcodeStatus("Product not found — type name below");
           }
         } catch {
+          setScannedBarcode(null);
           setBarcodeStatus("Could not search online — type name below");
         }
       }
     } catch {
+      setScannedBarcode(null);
       setBarcodeStatus("Error looking up barcode");
     }
   }
 
   function handleProductSelect(product: ProductResult) {
     setProductName(product.name);
+    setScannedBarcode(null);
     setBarcodeStatus(null);
   }
 
@@ -110,9 +118,10 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
 
     const name = productName.trim();
     const qty = Number(quantity) || 1;
+    const barcode = scannedBarcode ?? undefined;
 
     startTransition(async () => {
-      const result = await addListItem(list.id, name, qty);
+      const result = await addListItem(list.id, name, qty, barcode ? { barcode } : undefined);
 
       if (result && "error" in result && result.error) {
         setError(result.error);
@@ -133,13 +142,16 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
           ...prev,
           {
             ...newItem,
-            products: { id: newItem.product_id, name: result.productName ?? name, barcode: null },
+            products: newItem.product_id
+              ? { id: newItem.product_id, name: result.productName ?? name, barcode: barcode ?? null }
+              : null,
           },
         ]);
       }
 
       setProductName("");
       setQuantity("1");
+      setScannedBarcode(null);
       setBarcodeStatus(null);
     });
   }
@@ -336,7 +348,7 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
                 onSelect={handleProductSelect}
                 placeholder="Search or type product name"
                 value={productName}
-                onValueChange={(v) => { setProductName(v); setBarcodeStatus(null); }}
+                onValueChange={(v) => { setProductName(v); setScannedBarcode(null); setBarcodeStatus(null); }}
               />
             </div>
             <button
@@ -376,7 +388,7 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
               <div className="flex items-center justify-between">
                 <div className="flex-1">
                   <p className="font-medium text-gray-900">
-                    {item.products?.name ?? "Unknown product"}
+                    {item.products?.name ?? item.product_name ?? "Unknown product"}
                   </p>
                   {isOwner && editingItem === item.id ? (
                     <div className="mt-1 flex items-center gap-2">
@@ -423,7 +435,7 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
         onClose={() => setDeleteConfirm(null)}
         onConfirm={handleRemoveItem}
         title="Remove item"
-        message={`Remove "${deleteItem?.products?.name ?? "this item"}" from the list?`}
+        message={`Remove "${deleteItem?.products?.name ?? deleteItem?.product_name ?? "this item"}" from the list?`}
         confirmLabel="Remove"
         loading={isPending}
       />

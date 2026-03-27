@@ -62,7 +62,8 @@ export async function deleteList(listId: string) {
 export async function addListItem(
   listId: string,
   productName: string,
-  quantity: number
+  quantity: number,
+  options?: { barcode?: string }
 ) {
   const supabase = await createServerSupabaseClient();
   const {
@@ -73,68 +74,115 @@ export async function addListItem(
     redirect("/auth/login");
   }
 
-  // Find existing product by name or create new one
-  let productId: string;
+  const name = productName.trim();
+  let productId: string | null = null;
 
-  const { data: existing } = await supabase
-    .from("products")
-    .select("id")
-    .ilike("name", productName.trim())
-    .limit(1)
-    .single();
-
-  if (existing) {
-    productId = existing.id;
-  } else {
-    const { data: newProduct, error: createError } = await supabase
+  if (options?.barcode) {
+    // Barcode-scanned product: find or create in products table
+    const { data: existing } = await supabase
       .from("products")
-      .insert({ name: productName.trim() })
       .select("id")
+      .eq("barcode", options.barcode)
+      .limit(1)
       .single();
 
-    if (createError || !newProduct) {
-      return { error: createError?.message || "Failed to create product" };
+    if (existing) {
+      productId = existing.id;
+    } else {
+      const { data: newProduct, error: createError } = await supabase
+        .from("products")
+        .insert({ name, barcode: options.barcode })
+        .select("id")
+        .single();
+
+      if (createError || !newProduct) {
+        return { error: createError?.message || "Failed to create product" };
+      }
+      productId = newProduct.id;
     }
-    productId = newProduct.id;
+  } else {
+    // Free text: check if product already exists by name (don't create new)
+    const { data: existing } = await supabase
+      .from("products")
+      .select("id")
+      .ilike("name", name)
+      .limit(1)
+      .single();
+
+    if (existing) {
+      productId = existing.id;
+    }
   }
 
   // Check if product already in this list — merge quantity
-  const { data: existingItem } = await supabase
-    .from("shopping_list_items")
-    .select("id, planned_quantity")
-    .eq("list_id", listId)
-    .eq("product_id", productId)
-    .single();
-
-  if (existingItem) {
-    const newQty = existingItem.planned_quantity + quantity;
-    const { error: updateError } = await supabase
+  if (productId) {
+    const { data: existingItem } = await supabase
       .from("shopping_list_items")
-      .update({ planned_quantity: newQty })
-      .eq("id", existingItem.id);
+      .select("id, planned_quantity")
+      .eq("list_id", listId)
+      .eq("product_id", productId)
+      .single();
 
-    if (updateError) {
-      return { error: updateError.message };
+    if (existingItem) {
+      const newQty = existingItem.planned_quantity + quantity;
+      const { error: updateError } = await supabase
+        .from("shopping_list_items")
+        .update({ planned_quantity: newQty })
+        .eq("id", existingItem.id);
+
+      if (updateError) {
+        return { error: updateError.message };
+      }
+
+      return { item: { id: existingItem.id }, merged: true };
     }
+  }
 
-    return { item: { id: existingItem.id }, merged: true };
+  // Also check for duplicate by product_name (free text items)
+  if (!productId) {
+    const { data: existingByName } = await supabase
+      .from("shopping_list_items")
+      .select("id, planned_quantity")
+      .eq("list_id", listId)
+      .is("product_id", null)
+      .ilike("product_name", name)
+      .single();
+
+    if (existingByName) {
+      const newQty = existingByName.planned_quantity + quantity;
+      const { error: updateError } = await supabase
+        .from("shopping_list_items")
+        .update({ planned_quantity: newQty })
+        .eq("id", existingByName.id);
+
+      if (updateError) {
+        return { error: updateError.message };
+      }
+
+      return { item: { id: existingByName.id }, merged: true };
+    }
+  }
+
+  const insertPayload: Record<string, unknown> = {
+    list_id: listId,
+    planned_quantity: quantity,
+    product_name: name,
+  };
+  if (productId) {
+    insertPayload.product_id = productId;
   }
 
   const { data, error } = await supabase
     .from("shopping_list_items")
-    .insert({
-      list_id: listId,
-      product_id: productId,
-      planned_quantity: quantity,
-    })
-    .select("id, planned_quantity, product_id")
+    .insert(insertPayload as never)
+    .select("id, planned_quantity, product_id, product_name")
     .single();
 
   if (error) {
     return { error: error.message };
   }
 
-  return { item: data, productName: productName.trim() };
+  return { item: data, productName: name };
 }
 
 export async function removeListItem(itemId: string) {
@@ -197,22 +245,29 @@ export async function convertListToCart(listId: string) {
   // Get list items with product info
   const { data: listItems, error: itemsError } = await supabase
     .from("shopping_list_items")
-    .select("product_id, planned_quantity")
+    .select("product_id, product_name, planned_quantity")
     .eq("list_id", listId);
 
   if (itemsError || !listItems?.length) {
     return { error: itemsError?.message || "No items in list" };
   }
 
-  // For each product, find the latest product_entry
-  const productIds = listItems.map((item) => item.product_id);
-  const { data: latestEntries, error: entriesError } = await supabase
-    .from("latest_product_prices")
-    .select("id, product_id, store_id, price, quantity, created_at, product_name, barcode, store_name")
-    .in("product_id", productIds);
+  // For items with product_id, find the latest product_entry
+  const productIds = listItems
+    .filter((item) => item.product_id)
+    .map((item) => item.product_id as string);
 
-  if (entriesError) {
-    return { error: entriesError.message };
+  let latestEntries: { id: string; product_id: string; store_id: string; price: number; quantity: number; created_at: string; product_name: string; barcode: string | null; store_name: string }[] = [];
+  if (productIds.length > 0) {
+    const { data, error: entriesError } = await supabase
+      .from("latest_product_prices")
+      .select("id, product_id, store_id, price, quantity, created_at, product_name, barcode, store_name")
+      .in("product_id", productIds);
+
+    if (entriesError) {
+      return { error: entriesError.message };
+    }
+    latestEntries = (data ?? []) as typeof latestEntries;
   }
 
   // Create cart
@@ -226,25 +281,36 @@ export async function convertListToCart(listId: string) {
     return { error: cartError?.message || "Failed to create cart" };
   }
 
-  // Create cart items using product_id + last known price directly
+  // Create cart items — products with entries get price, free-text items get price 0
   const cartItems = listItems
     .map((listItem) => {
-      const entry = latestEntries?.find(
-        (e) => e.product_id === listItem.product_id
-      );
-      if (!entry) return null;
-      return {
-        cart_id: cart.id,
-        product_id: listItem.product_id,
-        product_name: entry.product_name,
-        product_barcode: entry.barcode ?? null,
-        price: entry.price,
-        quantity: listItem.planned_quantity,
-      };
+      if (listItem.product_id) {
+        const entry = latestEntries?.find(
+          (e) => e.product_id === listItem.product_id
+        );
+        return {
+          cart_id: cart.id,
+          product_id: listItem.product_id,
+          product_name: entry?.product_name ?? listItem.product_name ?? "Unknown",
+          product_barcode: entry?.barcode ?? null,
+          price: entry?.price ?? 0,
+          quantity: listItem.planned_quantity,
+        };
+      } else {
+        // Free-text item — no product in DB
+        return {
+          cart_id: cart.id,
+          product_id: null,
+          product_name: listItem.product_name ?? "Unknown",
+          product_barcode: null,
+          price: 0,
+          quantity: listItem.planned_quantity,
+        };
+      }
     })
     .filter(Boolean) as {
     cart_id: string;
-    product_id: string;
+    product_id: string | null;
     product_name: string;
     product_barcode: string | null;
     price: number;

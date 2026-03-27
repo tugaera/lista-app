@@ -104,7 +104,8 @@ create index idx_shopping_lists_user on shopping_lists (user_id);
 create table shopping_list_items (
   id uuid primary key default uuid_generate_v4(),
   list_id uuid not null references shopping_lists(id) on delete cascade,
-  product_id uuid not null references products(id) on delete cascade,
+  product_id uuid references products(id) on delete cascade,
+  product_name text,
   planned_quantity numeric(10, 3) not null default 1 check (planned_quantity > 0),
   created_at timestamptz not null default now()
 );
