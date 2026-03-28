@@ -42,13 +42,13 @@ export async function addCartItem(
     storeId: string;
     barcode?: string;
   },
-): Promise<CartItemDisplay> {
+): Promise<CartItemDisplay | { error: string }> {
   const supabase = await createServerSupabaseClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!user) throw new Error("Not authenticated");
+  if (!user) return { error: "Not authenticated" };
 
   // Try to find existing product (read-only, no INSERT)
   let productId: string | null = null;
@@ -76,14 +76,29 @@ export async function addCartItem(
     }
   }
 
-  // Deduplication: check existing cart items
+  // Deduplication: check existing cart items via RPC (bypasses RLS for shared users)
   // 1. By barcode first
   // 2. Then by product_id
   // 3. Then by product_name (case-insensitive)
-  const { data: existingItems } = await supabase
-    .from("shopping_cart_items")
-    .select("id, quantity, product_barcode, product_id, product_name")
-    .eq("cart_id", cartId);
+  let existingItems: Array<{ id: string; quantity: number; product_barcode: string | null; product_id: string | null; product_name: string }> | null = null;
+
+  const { data: rpcItems } = await supabase.rpc("get_cart_items", { p_cart_id: cartId });
+  if (rpcItems) {
+    existingItems = (rpcItems as unknown as Array<Record<string, unknown>>).map((r) => ({
+      id: r.id as string,
+      quantity: r.quantity as number,
+      product_barcode: (r.product_barcode as string) ?? null,
+      product_id: (r.product_id as string) ?? null,
+      product_name: r.product_name as string,
+    }));
+  } else {
+    // Fallback to direct query
+    const { data: directItems } = await supabase
+      .from("shopping_cart_items")
+      .select("id, quantity, product_barcode, product_id, product_name")
+      .eq("cart_id", cartId);
+    existingItems = directItems;
+  }
 
   let existingItemId: string | null = null;
   let existingQuantity = 0;
@@ -164,7 +179,7 @@ export async function addCartItem(
     .single();
 
   if (cartItemError)
-    throw new Error(`Failed to add cart item: ${cartItemError.message}`);
+    return { error: `Failed to add cart item: ${cartItemError.message}` };
 
   await recalculateCartTotal(cartId);
 
@@ -184,13 +199,13 @@ export async function addCartItem(
 export async function removeCartItem(
   cartId: string,
   itemId: string,
-): Promise<void> {
+): Promise<{ error?: string }> {
   const supabase = await createServerSupabaseClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!user) throw new Error("Not authenticated");
+  if (!user) return { error: "Not authenticated" };
 
   const { error } = await supabase
     .from("shopping_cart_items")
@@ -198,22 +213,23 @@ export async function removeCartItem(
     .eq("id", itemId)
     .eq("cart_id", cartId);
 
-  if (error) throw new Error(`Failed to remove cart item: ${error.message}`);
+  if (error) return { error: `Failed to remove cart item: ${error.message}` };
 
   await recalculateCartTotal(cartId);
+  return {};
 }
 
 export async function updateCartItemQuantity(
   cartId: string,
   itemId: string,
   quantity: number,
-): Promise<void> {
+): Promise<{ error?: string }> {
   const supabase = await createServerSupabaseClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!user) throw new Error("Not authenticated");
+  if (!user) return { error: "Not authenticated" };
 
   const { error } = await supabase
     .from("shopping_cart_items")
@@ -222,9 +238,10 @@ export async function updateCartItemQuantity(
     .eq("cart_id", cartId);
 
   if (error)
-    throw new Error(`Failed to update cart item: ${error.message}`);
+    return { error: `Failed to update cart item: ${error.message}` };
 
   await recalculateCartTotal(cartId);
+  return {};
 }
 
 export async function getActiveCart(
