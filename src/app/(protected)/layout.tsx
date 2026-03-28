@@ -4,6 +4,8 @@ import { BottomNav } from "@/components/layout/bottom-nav";
 import { Sidebar } from "@/components/layout/sidebar";
 import { UserProvider } from "@/features/users/components/user-provider";
 import type { Profile } from "@/types/database";
+import { OfflineBanner } from "@/components/ui/offline-banner";
+import { SyncManager } from "@/components/sync-manager";
 
 export default async function ProtectedLayout({
   children,
@@ -73,6 +75,8 @@ export default async function ProtectedLayout({
         <Sidebar />
         <main className="lg:ml-64 pb-20 lg:pb-0 min-h-screen">{children}</main>
         <BottomNav />
+        <OfflineBanner />
+        <SyncManager />
       </div>
     </UserProvider>
   );

@@ -3,9 +3,9 @@
 import { useState, useTransition, useRef, useEffect } from "react";
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
 import {
-  removeCartItem,
-  updateCartItemQuantity,
-} from "@/features/shopping/actions";
+  removeCartItemOffline,
+  updateCartItemQuantityOffline,
+} from "@/lib/offline/cart-actions";
 import type { CartItemDisplay } from "@/features/shopping/actions";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { getUserColor, getUserInitial } from "@/lib/user-colors";
@@ -44,7 +44,7 @@ export function CartItemList({ items, cartId, onItemRemoved, onItemUpdated, isSh
     onItemRemoved(itemId);
     setDeleteConfirm(null);
     startDeleteTransition(async () => {
-      await removeCartItem(cartId, itemId);
+      await removeCartItemOffline(cartId, itemId);
     });
   }
 
@@ -269,7 +269,7 @@ function CartItemRow({
     onItemUpdated(item.id, newQty);
     setIsEditing(false);
     startTransition(async () => {
-      await updateCartItemQuantity(cartId, item.id, newQty);
+      await updateCartItemQuantityOffline(cartId, item.id, newQty);
     });
   }
 

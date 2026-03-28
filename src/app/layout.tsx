@@ -8,6 +8,15 @@ export const metadata: Metadata = {
   description:
     "Mobile-first shopping assistant with price tracking, lists, and offline support",
   manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "Lista",
+  },
+  icons: {
+    icon: "/favicon.ico",
+    apple: "/apple-touch-icon.png",
+  },
 };
 
 export const viewport: Viewport = {

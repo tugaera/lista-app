@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import { addCartItem } from "@/features/shopping/actions";
+import { addCartItemOffline } from "@/lib/offline/cart-actions";
 import type { CartItemDisplay } from "@/features/shopping/actions";
 import { ProductSearch, type ProductResult } from "./product-search";
 import { DiscountModal } from "./discount-modal";
@@ -124,7 +124,7 @@ export function QuickAddForm({
 
     startTransition(async () => {
       try {
-        const result = await addCartItem(cartId, {
+        const result = await addCartItemOffline(cartId, {
           productName: productName.trim(),
           price: parsedPrice,
           originalPrice: hasDiscount ? originalPrice : null,
