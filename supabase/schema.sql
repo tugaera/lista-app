@@ -107,6 +107,7 @@ create table shopping_list_items (
   product_id uuid references products(id) on delete cascade,
   product_name text,
   planned_quantity numeric(10, 3) not null default 1 check (planned_quantity > 0),
+  added_by uuid references auth.users(id),
   created_at timestamptz not null default now()
 );
 
@@ -138,6 +139,7 @@ create table shopping_cart_items (
   price            numeric(10, 2) not null,
   original_price   numeric(10, 2),
   quantity         numeric(10, 3) not null default 1 check (quantity > 0),
+  added_by         uuid references auth.users(id),
   created_at       timestamptz not null default now()
 );
 
@@ -256,9 +258,11 @@ begin
   return coalesce((
     select jsonb_agg(row_to_json(t) order by t.created_at asc)
     from (
-      select id, product_id, product_name, product_barcode, price, original_price, quantity, created_at
-      from shopping_cart_items
-      where cart_id = p_cart_id
+      select sci.id, sci.product_id, sci.product_name, sci.product_barcode, sci.price, sci.original_price, sci.quantity, sci.created_at,
+             pr.email as added_by_email
+      from shopping_cart_items sci
+      left join profiles pr on pr.id = sci.added_by
+      where sci.cart_id = p_cart_id
     ) t
   ), '[]'::jsonb);
 end;
@@ -315,9 +319,11 @@ begin
     select jsonb_agg(row_to_json(t) order by t.created_at asc)
     from (
       select sli.id, sli.list_id, sli.product_id, sli.product_name, sli.planned_quantity, sli.created_at,
-             case when p.id is not null then jsonb_build_object('id', p.id, 'name', p.name, 'barcode', p.barcode) else null end as products
+             case when p.id is not null then jsonb_build_object('id', p.id, 'name', p.name, 'barcode', p.barcode) else null end as products,
+             pr.email as added_by_email
       from shopping_list_items sli
       left join products p on p.id = sli.product_id
+      left join profiles pr on pr.id = sli.added_by
       where sli.list_id = p_list_id
     ) t
   ), '[]'::jsonb);
@@ -332,7 +338,8 @@ create or replace function public.insert_cart_item(
   p_product_barcode text,
   p_price numeric,
   p_original_price numeric,
-  p_quantity integer
+  p_quantity integer,
+  p_added_by uuid default null
 )
 returns uuid as $$
 declare
@@ -351,8 +358,8 @@ begin
     raise exception 'Access denied';
   end if;
 
-  insert into shopping_cart_items (cart_id, product_id, product_name, product_barcode, price, original_price, quantity)
-  values (p_cart_id, p_product_id, p_product_name, p_product_barcode, p_price, p_original_price, p_quantity)
+  insert into shopping_cart_items (cart_id, product_id, product_name, product_barcode, price, original_price, quantity, added_by)
+  values (p_cart_id, p_product_id, p_product_name, p_product_barcode, p_price, p_original_price, p_quantity, coalesce(p_added_by, v_user_id))
   returning id into v_item_id;
 
   return v_item_id;

@@ -167,6 +167,7 @@ export async function addListItem(
     list_id: listId,
     planned_quantity: quantity,
     product_name: name,
+    added_by: user.id,
   };
   if (productId) {
     insertPayload.product_id = productId;

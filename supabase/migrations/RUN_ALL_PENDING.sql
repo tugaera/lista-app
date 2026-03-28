@@ -400,9 +400,11 @@ BEGIN
     SELECT jsonb_agg(row_to_json(t) ORDER BY t.created_at ASC)
     FROM (
       SELECT sli.id, sli.list_id, sli.product_id, sli.product_name, sli.planned_quantity, sli.created_at,
-             CASE WHEN p.id IS NOT NULL THEN jsonb_build_object('id', p.id, 'name', p.name, 'barcode', p.barcode) ELSE null END AS products
+             CASE WHEN p.id IS NOT NULL THEN jsonb_build_object('id', p.id, 'name', p.name, 'barcode', p.barcode) ELSE null END AS products,
+             pr.email AS added_by_email
       FROM shopping_list_items sli
       LEFT JOIN products p ON p.id = sli.product_id
+      LEFT JOIN profiles pr ON pr.id = sli.added_by
       WHERE sli.list_id = p_list_id
     ) t
   ), '[]'::jsonb);
@@ -412,7 +414,8 @@ $$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
 -- Insert cart item (bypasses RLS so shared users can add items)
 CREATE OR REPLACE FUNCTION public.insert_cart_item(
   p_cart_id uuid, p_product_id uuid, p_product_name text,
-  p_product_barcode text, p_price numeric, p_original_price numeric, p_quantity integer
+  p_product_barcode text, p_price numeric, p_original_price numeric, p_quantity integer,
+  p_added_by uuid DEFAULT NULL
 ) RETURNS uuid AS $$
 DECLARE
   v_user_id uuid := auth.uid();
@@ -423,8 +426,8 @@ BEGIN
     AND (sc.user_id = v_user_id OR EXISTS (SELECT 1 FROM cart_shares cs WHERE cs.cart_id = sc.id AND cs.shared_with_user_id = v_user_id))
   ) INTO v_has_access;
   IF NOT v_has_access THEN RAISE EXCEPTION 'Access denied'; END IF;
-  INSERT INTO shopping_cart_items (cart_id, product_id, product_name, product_barcode, price, original_price, quantity)
-  VALUES (p_cart_id, p_product_id, p_product_name, p_product_barcode, p_price, p_original_price, p_quantity)
+  INSERT INTO shopping_cart_items (cart_id, product_id, product_name, product_barcode, price, original_price, quantity, added_by)
+  VALUES (p_cart_id, p_product_id, p_product_name, p_product_barcode, p_price, p_original_price, p_quantity, COALESCE(p_added_by, v_user_id))
   RETURNING id INTO v_item_id;
   RETURN v_item_id;
 END;
@@ -524,9 +527,11 @@ BEGIN
   RETURN COALESCE((
     SELECT jsonb_agg(row_to_json(t) ORDER BY t.created_at ASC)
     FROM (
-      SELECT id, product_id, product_name, product_barcode, price, original_price, quantity, created_at
-      FROM shopping_cart_items
-      WHERE cart_id = p_cart_id
+      SELECT sci.id, sci.product_id, sci.product_name, sci.product_barcode, sci.price, sci.original_price, sci.quantity, sci.created_at,
+             pr.email AS added_by_email
+      FROM shopping_cart_items sci
+      LEFT JOIN profiles pr ON pr.id = sci.added_by
+      WHERE sci.cart_id = p_cart_id
     ) t
   ), '[]'::jsonb);
 END;
@@ -550,6 +555,10 @@ BEGIN
   ), '[]'::jsonb);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
+
+-- === Migration 019: Add added_by column for tracking who added each item ===
+ALTER TABLE shopping_cart_items ADD COLUMN IF NOT EXISTS added_by uuid REFERENCES auth.users(id);
+ALTER TABLE shopping_list_items ADD COLUMN IF NOT EXISTS added_by uuid REFERENCES auth.users(id);
 
 -- ============================================================
 -- DONE! All migrations applied.

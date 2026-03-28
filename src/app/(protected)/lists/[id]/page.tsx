@@ -36,6 +36,7 @@ export default async function ListDetailRoute({
     planned_quantity: number;
     created_at: string;
     products: { id: string; name: string; barcode: string | null } | null;
+    added_by_email: string | null;
   }>) ?? [];
 
   const shares = isOwner ? await getListShares(id) : [];

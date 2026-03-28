@@ -96,6 +96,7 @@ export function ShoppingPage({
             originalPrice: row.original_price ?? null,
             quantity: row.quantity,
             subtotal: row.price * row.quantity,
+            // addedByEmail not available via realtime — will show on next page load
           };
           setItems((prev) => {
             if (prev.find((i) => i.id === newItem.id)) return prev;
@@ -532,6 +533,7 @@ export function ShoppingPage({
           cartId={cartId}
           onItemRemoved={handleItemRemoved}
           onItemUpdated={handleItemUpdated}
+          isShared={isSharedCart || shares.length > 0}
         />
       </main>
 

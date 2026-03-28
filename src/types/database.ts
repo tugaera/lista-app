@@ -159,6 +159,7 @@ export interface Database {
           product_id: string | null;
           product_name: string | null;
           planned_quantity: number;
+          added_by: string | null;
           created_at: string;
         };
         Insert: {
@@ -167,6 +168,7 @@ export interface Database {
           product_id?: string | null;
           product_name?: string | null;
           planned_quantity: number;
+          added_by?: string | null;
           created_at?: string;
         };
         Update: {
@@ -175,6 +177,7 @@ export interface Database {
           product_id?: string | null;
           product_name?: string | null;
           planned_quantity?: number;
+          added_by?: string | null;
           created_at?: string;
         };
         Relationships: [
@@ -340,6 +343,7 @@ export interface Database {
           price: number;
           original_price: number | null;
           quantity: number;
+          added_by: string | null;
           created_at: string;
         };
         Insert: {
@@ -352,6 +356,7 @@ export interface Database {
           price: number;
           original_price?: number | null;
           quantity: number;
+          added_by?: string | null;
           created_at?: string;
         };
         Update: {
@@ -364,6 +369,7 @@ export interface Database {
           price?: number;
           original_price?: number | null;
           quantity?: number;
+          added_by?: string | null;
           created_at?: string;
         };
         Relationships: [
@@ -532,6 +538,7 @@ export interface Database {
           p_price: number;
           p_original_price: number | null;
           p_quantity: number;
+          p_added_by: string | null;
         };
         Returns: string;
       };

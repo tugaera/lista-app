@@ -12,6 +12,7 @@ export type CartItemDisplay = {
   quantity: number;
   subtotal: number;
   merged?: boolean;
+  addedByEmail?: string | null;
 };
 
 export async function createCart(): Promise<string> {
@@ -188,6 +189,7 @@ export async function addCartItem(
     p_price: data.price,
     p_original_price: data.originalPrice ?? null,
     p_quantity: data.quantity,
+    p_added_by: user.id,
   });
 
   if (rpcInsertErr) {
@@ -199,6 +201,7 @@ export async function addCartItem(
       product_barcode: data.barcode ?? null,
       price: data.price,
       quantity: data.quantity,
+      added_by: user.id,
     };
     if (data.originalPrice != null) insertPayload.original_price = data.originalPrice;
 
@@ -474,6 +477,7 @@ export async function getCartItems(
       price: number;
       original_price: number | null;
       quantity: number;
+      added_by_email: string | null;
     }>;
     return items.map((item) => ({
       id: item.id,
@@ -484,17 +488,26 @@ export async function getCartItems(
       originalPrice: item.original_price ?? null,
       quantity: item.quantity,
       subtotal: item.price * item.quantity,
+      addedByEmail: item.added_by_email ?? null,
     }));
   }
 
   // Fallback to direct query (for when RPC doesn't exist yet)
   const { data, error } = await supabase
     .from("shopping_cart_items")
-    .select("id, product_id, product_name, product_barcode, price, original_price, quantity")
+    .select("id, product_id, product_name, product_barcode, price, original_price, quantity, added_by")
     .eq("cart_id", cartId)
     .order("created_at", { ascending: true });
 
   if (error) throw new Error(`Failed to fetch cart items: ${error.message}`);
+
+  // Resolve added_by emails
+  const addedByIds = [...new Set((data ?? []).map((i) => i.added_by).filter(Boolean))] as string[];
+  const emailMap = new Map<string, string>();
+  for (const uid of addedByIds) {
+    const { data: email } = await supabase.rpc("get_profile_email_by_id", { user_id: uid });
+    if (email) emailMap.set(uid, email);
+  }
 
   return (data ?? []).map((item) => ({
     id: item.id,
@@ -505,6 +518,7 @@ export async function getCartItems(
     originalPrice: (item as unknown as { original_price?: number | null }).original_price ?? null,
     quantity: item.quantity,
     subtotal: item.price * item.quantity,
+    addedByEmail: item.added_by ? (emailMap.get(item.added_by) ?? null) : null,
   }));
 }
 
