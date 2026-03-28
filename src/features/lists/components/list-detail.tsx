@@ -21,6 +21,7 @@ import { ProductSearch, type ProductResult } from "@/features/shopping/component
 import { BarcodeScanner } from "@/features/shopping/components/barcode-scanner";
 import type { ShoppingList, ShoppingListItem, Product } from "@/types/database";
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
+import { getUserColor, getUserInitial } from "@/lib/user-colors";
 
 interface ListItemWithProduct extends ShoppingListItem {
   products: Pick<Product, "id" | "name" | "barcode"> | null;
@@ -122,6 +123,17 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
               } as ListItemWithProduct,
             ];
           });
+          // If email unknown, resolve via RPC and update item
+          if (row.added_by && !addedByEmail) {
+            supabase.rpc("get_profile_email_by_id", { user_id: row.added_by }).then(({ data }) => {
+              if (data) {
+                emailMapRef.current.set(row.added_by!, data);
+                setItems((prev) =>
+                  prev.map((i) => i.id === row.id ? { ...i, added_by_email: data } : i),
+                );
+              }
+            });
+          }
         },
       )
       .on(
@@ -537,9 +549,14 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
                 <div className="flex items-center gap-2">
                   {isShared && item.added_by_email && (
                     <div className="group relative shrink-0">
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                      </svg>
+                      {(() => {
+                        const color = getUserColor(item.added_by_email);
+                        return (
+                          <span className={`flex h-5 w-5 items-center justify-center rounded-full border text-[10px] font-bold ${color.bg} ${color.text} ${color.border}`}>
+                            {getUserInitial(item.added_by_email)}
+                          </span>
+                        );
+                      })()}
                       <span className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-md bg-gray-800 px-2 py-1 text-xs text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
                         {item.added_by_email}
                       </span>

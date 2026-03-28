@@ -8,6 +8,7 @@ import {
 } from "@/features/shopping/actions";
 import type { CartItemDisplay } from "@/features/shopping/actions";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { getUserColor, getUserInitial } from "@/lib/user-colors";
 
 type PriceEntry = {
   store: string;
@@ -298,12 +299,17 @@ function CartItemRow({
       </div>
 
       <div className="flex items-center gap-1.5">
-        {/* Added-by user icon — only on shared carts */}
+        {/* Added-by user avatar — only on shared carts */}
         {isShared && item.addedByEmail && (
           <div className="group relative shrink-0">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-            </svg>
+            {(() => {
+              const color = getUserColor(item.addedByEmail);
+              return (
+                <span className={`flex h-5 w-5 items-center justify-center rounded-full border text-[10px] font-bold ${color.bg} ${color.text} ${color.border}`}>
+                  {getUserInitial(item.addedByEmail)}
+                </span>
+              );
+            })()}
             <span className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-md bg-gray-800 px-2 py-1 text-xs text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
               {item.addedByEmail}
             </span>

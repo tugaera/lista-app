@@ -109,7 +109,7 @@ export function ShoppingPage({
             quantity: number;
             added_by: string | null;
           };
-          const addedByEmail = row.added_by
+          let addedByEmail = row.added_by
             ? emailMapRef.current.get(row.added_by) ?? (row.added_by === currentUserId ? currentUserEmail : undefined)
             : undefined;
           const newItem: CartItemDisplay = {
@@ -127,6 +127,17 @@ export function ShoppingPage({
             if (prev.find((i) => i.id === newItem.id)) return prev;
             return [...prev, newItem];
           });
+          // If email unknown, resolve via RPC and update item
+          if (row.added_by && !addedByEmail) {
+            supabase.rpc("get_profile_email_by_id", { user_id: row.added_by }).then(({ data }) => {
+              if (data) {
+                emailMapRef.current.set(row.added_by!, data);
+                setItems((prev) =>
+                  prev.map((i) => i.id === row.id ? { ...i, addedByEmail: data } : i),
+                );
+              }
+            });
+          }
         },
       )
       .on(
