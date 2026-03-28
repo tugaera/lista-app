@@ -3,7 +3,7 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { ShoppingPage } from "@/features/shopping/components/shopping-page";
 import { getCartItems } from "@/features/shopping/actions";
 import { getListWithItems, getListsPreview } from "@/features/lists/actions";
-import { getSharedWithMeCarts } from "@/features/shopping/actions-shares";
+import { getSharedWithMeCarts, getCartShares } from "@/features/shopping/actions-shares";
 import type { TrackingItem } from "@/features/shopping/components/list-tracking-panel";
 
 export default async function ShoppingRoute({
@@ -93,11 +93,12 @@ export default async function ShoppingRoute({
   }
 
   // Parallel fetches
-  const [items, storesResult, listsResult, sharedWithMeCarts] = await Promise.all([
+  const [items, storesResult, listsResult, sharedWithMeCarts, initialShares] = await Promise.all([
     getCartItems(cartId),
     supabase.from("stores").select("id, name, is_active, sort_order").eq("is_active", true).order("sort_order", { ascending: true, nullsFirst: false }).order("name", { ascending: true }),
     getListsPreview(),
     getSharedWithMeCarts(),
+    isSharedCart ? Promise.resolve([]) : getCartShares(cartId),
   ]);
 
   // If a list was requested via URL, fetch its items for tracking
@@ -134,6 +135,7 @@ export default async function ShoppingRoute({
       sharedWithMeCarts={filteredSharedCarts}
       isSharedCart={isSharedCart}
       ownerEmail={ownerEmail}
+      initialShares={initialShares}
     />
   );
 }
