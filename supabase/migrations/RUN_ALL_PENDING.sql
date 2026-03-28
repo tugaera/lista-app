@@ -13,17 +13,21 @@ DROP VIEW IF EXISTS latest_product_prices;
 ALTER TABLE product_entries ADD COLUMN IF NOT EXISTS original_price numeric(10, 2);
 
 CREATE OR REPLACE VIEW latest_product_prices AS
-SELECT DISTINCT ON (pe.product_id)
+SELECT DISTINCT ON (pe.product_id, pe.store_id)
+  pe.id,
   pe.product_id,
   pe.store_id,
   pe.price,
   pe.original_price,
   pe.quantity,
   pe.created_at,
+  p.name AS product_name,
+  p.barcode,
   s.name AS store_name
 FROM product_entries pe
+JOIN products p ON p.id = pe.product_id
 JOIN stores s ON s.id = pe.store_id
-ORDER BY pe.product_id, pe.created_at DESC;
+ORDER BY pe.product_id, pe.store_id, pe.created_at DESC;
 
 -- === Migration 012: free-text list items ===
 ALTER TABLE shopping_list_items ALTER COLUMN product_id DROP NOT NULL;
@@ -404,6 +408,26 @@ BEGIN
   ), '[]'::jsonb);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
+
+-- Recalculate cart total (bypasses RLS so shared users can trigger it)
+CREATE OR REPLACE FUNCTION public.recalculate_cart_total(p_cart_id uuid)
+RETURNS void AS $$
+DECLARE
+  v_user_id uuid := auth.uid();
+  v_has_access boolean;
+  v_total numeric;
+BEGIN
+  SELECT EXISTS(
+    SELECT 1 FROM shopping_carts sc
+    WHERE sc.id = p_cart_id
+      AND (sc.user_id = v_user_id
+        OR EXISTS (SELECT 1 FROM cart_shares cs WHERE cs.cart_id = sc.id AND cs.shared_with_user_id = v_user_id))
+  ) INTO v_has_access;
+  IF NOT v_has_access THEN RETURN; END IF;
+  SELECT COALESCE(SUM(price * quantity), 0) INTO v_total FROM shopping_cart_items WHERE cart_id = p_cart_id;
+  UPDATE shopping_carts SET total = v_total WHERE id = p_cart_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Get cart store_id (bypasses RLS for shared users)
 CREATE OR REPLACE FUNCTION public.get_cart_store_id(p_cart_id uuid)

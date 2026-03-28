@@ -519,6 +519,10 @@ export interface Database {
         Args: { p_cart_id: string };
         Returns: string | null;
       };
+      recalculate_cart_total: {
+        Args: { p_cart_id: string };
+        Returns: void;
+      };
     };
     Enums: {
       user_role: "admin" | "moderator" | "user";

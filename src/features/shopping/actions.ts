@@ -430,15 +430,23 @@ export async function getCartItems(
 export async function recalculateCartTotal(cartId: string): Promise<void> {
   const supabase = await createServerSupabaseClient();
 
-  const { data: items } = await supabase
-    .from("shopping_cart_items")
-    .select("price, quantity")
-    .eq("cart_id", cartId);
+  // Use security definer RPC so shared users can recalculate too
+  const { error: rpcError } = await supabase.rpc("recalculate_cart_total", {
+    p_cart_id: cartId,
+  });
 
-  const total = (items ?? []).reduce(
-    (sum, item) => sum + item.price * item.quantity,
-    0,
-  );
+  if (rpcError) {
+    // Fallback to direct update (works for owner)
+    const { data: items } = await supabase
+      .from("shopping_cart_items")
+      .select("price, quantity")
+      .eq("cart_id", cartId);
 
-  await supabase.from("shopping_carts").update({ total }).eq("id", cartId);
+    const total = (items ?? []).reduce(
+      (sum, item) => sum + item.price * item.quantity,
+      0,
+    );
+
+    await supabase.from("shopping_carts").update({ total }).eq("id", cartId);
+  }
 }

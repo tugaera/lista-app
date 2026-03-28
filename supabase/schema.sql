@@ -324,6 +324,30 @@ begin
 end;
 $$ language plpgsql security definer stable;
 
+-- Recalculate cart total (bypasses RLS so shared users can trigger it)
+create or replace function public.recalculate_cart_total(p_cart_id uuid)
+returns void as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_has_access boolean;
+  v_total numeric;
+begin
+  select exists(
+    select 1 from shopping_carts sc
+    where sc.id = p_cart_id
+      and (sc.user_id = v_user_id
+        or exists (select 1 from cart_shares cs where cs.cart_id = sc.id and cs.shared_with_user_id = v_user_id))
+  ) into v_has_access;
+
+  if not v_has_access then return; end if;
+
+  select coalesce(sum(price * quantity), 0) into v_total
+  from shopping_cart_items where cart_id = p_cart_id;
+
+  update shopping_carts set total = v_total where id = p_cart_id;
+end;
+$$ language plpgsql security definer;
+
 -- Get cart store_id (bypasses RLS for shared users)
 create or replace function public.get_cart_store_id(p_cart_id uuid)
 returns uuid as $$
