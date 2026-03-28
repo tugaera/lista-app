@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -21,7 +21,7 @@ import { ProductSearch, type ProductResult } from "@/features/shopping/component
 import { BarcodeScanner } from "@/features/shopping/components/barcode-scanner";
 import type { ShoppingList, ShoppingListItem, Product } from "@/types/database";
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
-import { getUserColor, getUserInitial } from "@/lib/user-colors";
+import { createUserColorMap, getUserInitial } from "@/lib/user-colors";
 
 interface ListItemWithProduct extends ShoppingListItem {
   products: Pick<Product, "id" | "name" | "barcode"> | null;
@@ -53,6 +53,15 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
   const scannedNameRef = useRef<string | null>(null);
 
   const isShared = !isOwner || initialShares.length > 0;
+
+  // Assign unique colors to each user for the avatar icons
+  const colorMap = useMemo(() => {
+    const map = createUserColorMap();
+    for (const item of items) {
+      if (item.added_by_email) map.getColor(item.added_by_email);
+    }
+    return map;
+  }, [items]);
 
   // Share panel
   const [showSharePanel, setShowSharePanel] = useState(false);
@@ -547,21 +556,19 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
                   )}
                 </div>
                 <div className="flex items-center gap-2">
-                  {isShared && item.added_by_email && (
-                    <div className="group relative shrink-0">
-                      {(() => {
-                        const color = getUserColor(item.added_by_email);
-                        return (
-                          <span className={`flex h-5 w-5 items-center justify-center rounded-full border text-[10px] font-bold ${color.bg} ${color.text} ${color.border}`}>
-                            {getUserInitial(item.added_by_email)}
-                          </span>
-                        );
-                      })()}
-                      <span className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-md bg-gray-800 px-2 py-1 text-xs text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
-                        {item.added_by_email}
-                      </span>
-                    </div>
-                  )}
+                  {isShared && item.added_by_email && (() => {
+                    const color = colorMap.getColor(item.added_by_email);
+                    return (
+                      <div className="group relative shrink-0">
+                        <span className={`flex h-5 w-5 items-center justify-center rounded-full border text-[10px] font-bold ${color.bg} ${color.text} ${color.border}`}>
+                          {getUserInitial(item.added_by_email)}
+                        </span>
+                        <span className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-md bg-gray-800 px-2 py-1 text-xs text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
+                          {item.added_by_email}
+                        </span>
+                      </div>
+                    );
+                  })()}
                   <Button variant="danger" size="sm" onClick={() => setDeleteConfirm(item.id)}>
                     Remove
                   </Button>

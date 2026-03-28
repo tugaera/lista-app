@@ -1,5 +1,5 @@
 // Friendly color palette for user avatars on shared carts/lists
-// Each color has a bg class and text class for the avatar circle
+// Colors are assigned sequentially per cart/list to guarantee each user gets a unique color.
 const USER_COLORS = [
   { bg: "bg-rose-100", text: "text-rose-700", border: "border-rose-200" },
   { bg: "bg-sky-100", text: "text-sky-700", border: "border-sky-200" },
@@ -13,14 +13,31 @@ const USER_COLORS = [
   { bg: "bg-indigo-100", text: "text-indigo-700", border: "border-indigo-200" },
 ] as const;
 
-/** Get a deterministic color for an email string */
-export function getUserColor(email: string) {
-  let hash = 0;
-  for (let i = 0; i < email.length; i++) {
-    hash = ((hash << 5) - hash + email.charCodeAt(i)) | 0;
-  }
-  const index = Math.abs(hash) % USER_COLORS.length;
-  return USER_COLORS[index];
+export type UserColor = (typeof USER_COLORS)[number];
+
+/**
+ * Creates a color map that assigns a unique color to each user (by email).
+ * Colors are assigned in order of first appearance — no two users share a color
+ * (up to 10 users; beyond that it wraps).
+ *
+ * Call once per cart/list load, then use the returned `getColor` function.
+ */
+export function createUserColorMap() {
+  const map = new Map<string, UserColor>();
+  let nextIndex = 0;
+
+  return {
+    /** Get the color for a user email, assigning a new one if first seen */
+    getColor(email: string): UserColor {
+      let color = map.get(email);
+      if (!color) {
+        color = USER_COLORS[nextIndex % USER_COLORS.length];
+        nextIndex++;
+        map.set(email, color);
+      }
+      return color;
+    },
+  };
 }
 
 /** Get the initial letter for an email (first char before @) */

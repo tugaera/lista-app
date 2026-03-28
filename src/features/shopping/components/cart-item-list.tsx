@@ -8,7 +8,8 @@ import {
 } from "@/lib/offline/cart-actions";
 import type { CartItemDisplay } from "@/features/shopping/actions";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { getUserColor, getUserInitial } from "@/lib/user-colors";
+import { useMemo } from "react";
+import { createUserColorMap, getUserInitial } from "@/lib/user-colors";
 
 type PriceEntry = {
   store: string;
@@ -26,6 +27,16 @@ type CartItemListProps = {
 };
 
 export function CartItemList({ items, cartId, onItemRemoved, onItemUpdated, isShared = false }: CartItemListProps) {
+  // Create a color map that assigns unique colors per user email
+  const colorMap = useMemo(() => {
+    const map = createUserColorMap();
+    // Pre-assign colors in order of appearance
+    for (const item of items) {
+      if (item.addedByEmail) map.getColor(item.addedByEmail);
+    }
+    return map;
+  }, [items]);
+
   const total = items.reduce((sum, item) => sum + item.subtotal, 0);
   const totalSavings = items.reduce((sum, item) => {
     if (item.originalPrice && item.originalPrice > item.price) {
@@ -69,6 +80,7 @@ export function CartItemList({ items, cartId, onItemRemoved, onItemUpdated, isSh
                 onDelete={() => setDeleteConfirm(item.id)}
                 onItemUpdated={onItemUpdated}
                 isShared={isShared}
+                userColor={item.addedByEmail ? colorMap.getColor(item.addedByEmail) : undefined}
               />
             ))}
           </ul>
@@ -243,12 +255,14 @@ function CartItemRow({
   onDelete,
   onItemUpdated,
   isShared = false,
+  userColor,
 }: {
   item: CartItemDisplay;
   cartId: string;
   onDelete: () => void;
   onItemUpdated: (itemId: string, newQuantity: number) => void;
   isShared?: boolean;
+  userColor?: { bg: string; text: string; border: string };
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editQuantity, setEditQuantity] = useState(String(item.quantity));
@@ -300,16 +314,11 @@ function CartItemRow({
 
       <div className="flex items-center gap-1.5">
         {/* Added-by user avatar — only on shared carts */}
-        {isShared && item.addedByEmail && (
+        {isShared && item.addedByEmail && userColor && (
           <div className="group relative shrink-0">
-            {(() => {
-              const color = getUserColor(item.addedByEmail);
-              return (
-                <span className={`flex h-5 w-5 items-center justify-center rounded-full border text-[10px] font-bold ${color.bg} ${color.text} ${color.border}`}>
-                  {getUserInitial(item.addedByEmail)}
-                </span>
-              );
-            })()}
+            <span className={`flex h-5 w-5 items-center justify-center rounded-full border text-[10px] font-bold ${userColor.bg} ${userColor.text} ${userColor.border}`}>
+              {getUserInitial(item.addedByEmail)}
+            </span>
             <span className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-md bg-gray-800 px-2 py-1 text-xs text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
               {item.addedByEmail}
             </span>
