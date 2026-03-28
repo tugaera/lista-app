@@ -590,17 +590,20 @@ create policy "shopping_list_items_select" on shopping_list_items
 
 create policy "shopping_list_items_insert" on shopping_list_items
   for insert to authenticated with check (
-    exists (select 1 from shopping_lists where id = list_id and user_id = auth.uid())
+    exists (select 1 from shopping_lists sl where sl.id = list_id
+      and (sl.user_id = auth.uid() or exists (select 1 from list_shares ls where ls.list_id = sl.id and ls.shared_with_user_id = auth.uid())))
   );
 
 create policy "shopping_list_items_update" on shopping_list_items
   for update to authenticated using (
-    exists (select 1 from shopping_lists where id = list_id and user_id = auth.uid())
+    exists (select 1 from shopping_lists sl where sl.id = list_id
+      and (sl.user_id = auth.uid() or exists (select 1 from list_shares ls where ls.list_id = sl.id and ls.shared_with_user_id = auth.uid())))
   );
 
 create policy "shopping_list_items_delete" on shopping_list_items
   for delete to authenticated using (
-    exists (select 1 from shopping_lists where id = list_id and user_id = auth.uid())
+    exists (select 1 from shopping_lists sl where sl.id = list_id
+      and (sl.user_id = auth.uid() or exists (select 1 from list_shares ls where ls.list_id = sl.id and ls.shared_with_user_id = auth.uid())))
   );
 
 -- Cart shares: owner sees all; shared member sees their record

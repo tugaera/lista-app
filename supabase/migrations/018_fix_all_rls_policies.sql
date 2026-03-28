@@ -159,17 +159,20 @@ CREATE POLICY "shopping_list_items_select" ON shopping_list_items
 CREATE POLICY "shopping_list_items_insert" ON shopping_list_items
   FOR INSERT TO authenticated
   WITH CHECK (
-    EXISTS (SELECT 1 FROM shopping_lists WHERE id = list_id AND user_id = auth.uid())
+    EXISTS (SELECT 1 FROM shopping_lists sl WHERE sl.id = list_id
+      AND (sl.user_id = auth.uid() OR EXISTS (SELECT 1 FROM list_shares ls WHERE ls.list_id = sl.id AND ls.shared_with_user_id = auth.uid())))
   );
 
 CREATE POLICY "shopping_list_items_update" ON shopping_list_items
   FOR UPDATE TO authenticated
   USING (
-    EXISTS (SELECT 1 FROM shopping_lists WHERE id = list_id AND user_id = auth.uid())
+    EXISTS (SELECT 1 FROM shopping_lists sl WHERE sl.id = list_id
+      AND (sl.user_id = auth.uid() OR EXISTS (SELECT 1 FROM list_shares ls WHERE ls.list_id = sl.id AND ls.shared_with_user_id = auth.uid())))
   );
 
 CREATE POLICY "shopping_list_items_delete" ON shopping_list_items
   FOR DELETE TO authenticated
   USING (
-    EXISTS (SELECT 1 FROM shopping_lists WHERE id = list_id AND user_id = auth.uid())
+    EXISTS (SELECT 1 FROM shopping_lists sl WHERE sl.id = list_id
+      AND (sl.user_id = auth.uid() OR EXISTS (SELECT 1 FROM list_shares ls WHERE ls.list_id = sl.id AND ls.shared_with_user_id = auth.uid())))
   );

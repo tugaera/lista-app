@@ -342,8 +342,8 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
         )}
       </div>
 
-      {/* Add item form — owner only */}
-      {isOwner && <Card className="mb-6">
+      {/* Add item form */}
+      <Card className="mb-6">
         <form onSubmit={handleAddItem} className="space-y-3">
           {barcodeStatus && (
             <p className="text-xs font-medium text-emerald-600">{barcodeStatus}</p>
@@ -387,7 +387,7 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
             <Button type="submit" loading={isPending} className="flex-1">Add</Button>
           </div>
         </form>
-      </Card>}
+      </Card>
 
       {/* Item list */}
       {items.length === 0 ? (
@@ -401,7 +401,7 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
                   <p className="font-medium text-gray-900">
                     {item.products?.name ?? item.product_name ?? "Unknown product"}
                   </p>
-                  {isOwner && editingItem === item.id ? (
+                  {editingItem === item.id ? (
                     <div className="mt-1 flex items-center gap-2">
                       <Input
                         type="number"
@@ -417,18 +417,16 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
                     </div>
                   ) : (
                     <p
-                      className={`text-sm text-gray-500 ${isOwner ? "cursor-pointer hover:text-emerald-600" : ""}`}
-                      onClick={() => isOwner && handleStartEdit(item.id, item.planned_quantity)}
+                      className="text-sm text-gray-500 cursor-pointer hover:text-emerald-600"
+                      onClick={() => handleStartEdit(item.id, item.planned_quantity)}
                     >
                       Qty: {item.planned_quantity}
                     </p>
                   )}
                 </div>
-                {isOwner && (
-                  <Button variant="danger" size="sm" onClick={() => setDeleteConfirm(item.id)}>
-                    Remove
-                  </Button>
-                )}
+                <Button variant="danger" size="sm" onClick={() => setDeleteConfirm(item.id)}>
+                  Remove
+                </Button>
               </div>
             </Card>
           ))}
