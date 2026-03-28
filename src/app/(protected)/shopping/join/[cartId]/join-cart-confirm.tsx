@@ -6,25 +6,39 @@ import { joinCartByUrl } from "@/features/shopping/actions-shares";
 
 interface JoinCartConfirmProps {
   cartId: string;
-  ownerEmail: string;
-  storeName: string | null;
 }
 
-export function JoinCartConfirm({ cartId, ownerEmail, storeName }: JoinCartConfirmProps) {
+export function JoinCartConfirm({ cartId }: JoinCartConfirmProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [joined, setJoined] = useState(false);
 
   function handleJoin() {
     setError(null);
     startTransition(async () => {
       const result = await joinCartByUrl(cartId);
       if (result.error) {
-        setError("Could not join cart. It may no longer be available.");
+        if (result.error === "own_cart") {
+          router.push(`/shopping?cart=${cartId}`);
+          return;
+        }
+        setError(result.error);
         return;
       }
+      setJoined(true);
       router.push(`/shopping?cart=${cartId}`);
     });
+  }
+
+  if (joined) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50 px-4">
+        <div className="w-full max-w-sm rounded-2xl bg-white p-8 text-center shadow-sm">
+          <p className="text-gray-600">Joining cart…</p>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -38,12 +52,9 @@ export function JoinCartConfirm({ cartId, ownerEmail, storeName }: JoinCartConfi
         </div>
 
         <h1 className="mb-1 text-center text-xl font-bold text-gray-900">Join shared cart?</h1>
-        <p className="mb-1 text-center text-sm text-gray-600">
-          <span className="font-medium text-purple-700">{ownerEmail}</span> is sharing their cart with you.
+        <p className="mb-4 text-center text-sm text-gray-600">
+          Someone is sharing their shopping cart with you.
         </p>
-        {storeName && (
-          <p className="mb-4 text-center text-xs text-gray-400">{storeName}</p>
-        )}
 
         <div className="my-4 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800">
           You will be added as a member of this cart and can view and edit its items in real time.

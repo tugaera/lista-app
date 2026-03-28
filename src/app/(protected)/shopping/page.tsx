@@ -50,14 +50,12 @@ export default async function ShoppingRoute({
         cartId = share.cart_id;
         isSharedCart = true;
 
-        // Get owner email from profiles
-        const { data: ownerProfile } = await supabase
-          .from("profiles")
-          .select("email")
-          .eq("id", share.owner_id)
-          .maybeSingle();
+        // Get owner email (uses security definer to bypass RLS)
+        const { data: ownerEmailResult } = await supabase.rpc("get_profile_email_by_id", {
+          user_id: share.owner_id,
+        });
 
-        ownerEmail = ownerProfile?.email ?? share.owner_id;
+        ownerEmail = ownerEmailResult ?? share.owner_id;
 
         // Get cart store
         const { data: sharedCart } = await supabase

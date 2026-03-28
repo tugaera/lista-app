@@ -229,6 +229,12 @@ returns uuid as $$
   select id from public.profiles where lower(email) = lower(lookup_email) limit 1;
 $$ language sql security definer stable;
 
+-- Look up a profile email by id (bypasses RLS for displaying owner info on shared items)
+create or replace function public.get_profile_email_by_id(user_id uuid)
+returns text as $$
+  select email from public.profiles where id = user_id limit 1;
+$$ language sql security definer stable;
+
 -- Validate invite code (callable by anon for signup)
 create or replace function public.validate_invite_code(invite_code text)
 returns boolean as $$
