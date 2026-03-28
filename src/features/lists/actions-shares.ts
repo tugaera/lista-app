@@ -125,16 +125,19 @@ export async function getSharedWithMeLists(): Promise<SharedWithMeList[]> {
   const listIds = shares.map((s) => s.list_id);
   const ownerIds = [...new Set(shares.map((s) => s.owner_id))];
 
-  const [listsResult, profilesResult] = await Promise.all([
-    supabase.from("shopping_lists").select("id, name").in("id", listIds),
-    supabase.from("profiles").select("id, email").in("id", ownerIds),
-  ]);
+  const listsResult = await supabase.from("shopping_lists").select("id, name").in("id", listIds);
 
   const listMap: Record<string, string> = {};
   for (const l of listsResult.data ?? []) listMap[l.id] = l.name;
 
+  // Get owner emails (uses security definer to bypass RLS)
   const ownerEmailMap: Record<string, string> = {};
-  for (const p of profilesResult.data ?? []) ownerEmailMap[p.id] = p.email;
+  await Promise.all(
+    ownerIds.map(async (ownerId) => {
+      const { data: email } = await supabase.rpc("get_profile_email_by_id", { user_id: ownerId });
+      if (email) ownerEmailMap[ownerId] = email;
+    }),
+  );
 
   const shareOwnerMap: Record<string, string> = {};
   for (const s of shares) shareOwnerMap[s.list_id] = s.owner_id;

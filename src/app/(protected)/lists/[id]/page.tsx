@@ -45,6 +45,7 @@ export default async function ListDetailRoute({
         id,
         list_id,
         product_id,
+        product_name,
         planned_quantity,
         created_at,
         products ( id, name, barcode )

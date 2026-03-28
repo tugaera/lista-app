@@ -156,16 +156,14 @@ export async function getSharedWithMeCarts(): Promise<SharedWithMeCart[]> {
 
   if (!carts || carts.length === 0) return [];
 
-  // Get owner emails from profiles
-  const { data: ownerProfiles } = await supabase
-    .from("profiles")
-    .select("id, email")
-    .in("id", ownerIds);
-
+  // Get owner emails (uses security definer to bypass RLS)
   const ownerEmailMap: Record<string, string> = {};
-  for (const p of ownerProfiles ?? []) {
-    ownerEmailMap[p.id] = p.email;
-  }
+  await Promise.all(
+    ownerIds.map(async (ownerId) => {
+      const { data: email } = await supabase.rpc("get_profile_email_by_id", { user_id: ownerId });
+      if (email) ownerEmailMap[ownerId] = email;
+    }),
+  );
 
   // Build share map: cart_id -> owner_id
   const shareOwnerMap: Record<string, string> = {};
