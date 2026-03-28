@@ -207,7 +207,7 @@ create or replace function public.handle_new_user()
 returns trigger as $$
 begin
   insert into public.profiles (id, email, role)
-  values (NEW.id, NEW.raw_user_meta_data->>'email', 'user')
+  values (NEW.id, coalesce(NEW.email, NEW.raw_user_meta_data->>'email'), 'user')
   on conflict (id) do nothing;
   return NEW;
 end;
