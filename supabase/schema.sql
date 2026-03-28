@@ -107,6 +107,7 @@ create table shopping_list_items (
   product_id uuid references products(id) on delete cascade,
   product_name text,
   planned_quantity numeric(10, 3) not null default 1 check (planned_quantity > 0),
+  added_by uuid references auth.users(id),
   created_at timestamptz not null default now()
 );
 
@@ -138,6 +139,7 @@ create table shopping_cart_items (
   price            numeric(10, 2) not null,
   original_price   numeric(10, 2),
   quantity         numeric(10, 3) not null default 1 check (quantity > 0),
+  added_by         uuid references auth.users(id),
   created_at       timestamptz not null default now()
 );
 
@@ -234,6 +236,333 @@ create or replace function public.get_profile_email_by_id(user_id uuid)
 returns text as $$
   select email from public.profiles where id = user_id limit 1;
 $$ language sql security definer stable;
+
+-- Get cart items (bypasses RLS — checks access via cart_shares or ownership)
+create or replace function public.get_cart_items(p_cart_id uuid)
+returns jsonb as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_has_access boolean;
+begin
+  select exists(
+    select 1 from shopping_carts sc
+    where sc.id = p_cart_id
+      and (sc.user_id = v_user_id
+        or exists (select 1 from cart_shares cs where cs.cart_id = sc.id and cs.shared_with_user_id = v_user_id))
+  ) into v_has_access;
+
+  if not v_has_access then
+    return '[]'::jsonb;
+  end if;
+
+  return coalesce((
+    select jsonb_agg(row_to_json(t) order by t.created_at asc)
+    from (
+      select sci.id, sci.product_id, sci.product_name, sci.product_barcode, sci.price, sci.original_price, sci.quantity, sci.created_at,
+             pr.email as added_by_email
+      from shopping_cart_items sci
+      left join profiles pr on pr.id = sci.added_by
+      where sci.cart_id = p_cart_id
+    ) t
+  ), '[]'::jsonb);
+end;
+$$ language plpgsql security definer stable;
+
+-- Get a list by id (bypasses RLS — checks access via list_shares or ownership)
+create or replace function public.get_list_by_id(p_list_id uuid)
+returns jsonb as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_has_access boolean;
+begin
+  select exists(
+    select 1 from shopping_lists sl
+    where sl.id = p_list_id
+      and (sl.user_id = v_user_id
+        or exists (select 1 from list_shares ls where ls.list_id = sl.id and ls.shared_with_user_id = v_user_id))
+  ) into v_has_access;
+
+  if not v_has_access then
+    return null;
+  end if;
+
+  return (
+    select row_to_json(t)
+    from (
+      select id, user_id, name, created_at
+      from shopping_lists
+      where id = p_list_id
+    ) t
+  );
+end;
+$$ language plpgsql security definer stable;
+
+-- Get list items (bypasses RLS — checks access via list_shares or ownership)
+create or replace function public.get_list_items(p_list_id uuid)
+returns jsonb as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_has_access boolean;
+begin
+  select exists(
+    select 1 from shopping_lists sl
+    where sl.id = p_list_id
+      and (sl.user_id = v_user_id
+        or exists (select 1 from list_shares ls where ls.list_id = sl.id and ls.shared_with_user_id = v_user_id))
+  ) into v_has_access;
+
+  if not v_has_access then
+    return '[]'::jsonb;
+  end if;
+
+  return coalesce((
+    select jsonb_agg(row_to_json(t) order by t.created_at asc)
+    from (
+      select sli.id, sli.list_id, sli.product_id, sli.product_name, sli.planned_quantity, sli.created_at,
+             case when p.id is not null then jsonb_build_object('id', p.id, 'name', p.name, 'barcode', p.barcode) else null end as products,
+             pr.email as added_by_email
+      from shopping_list_items sli
+      left join products p on p.id = sli.product_id
+      left join profiles pr on pr.id = sli.added_by
+      where sli.list_id = p_list_id
+    ) t
+  ), '[]'::jsonb);
+end;
+$$ language plpgsql security definer stable;
+
+-- Insert cart item (bypasses RLS so shared users can add items)
+create or replace function public.insert_cart_item(
+  p_cart_id uuid,
+  p_product_id uuid,
+  p_product_name text,
+  p_product_barcode text,
+  p_price numeric,
+  p_original_price numeric,
+  p_quantity integer,
+  p_added_by uuid default null
+)
+returns uuid as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_has_access boolean;
+  v_item_id uuid;
+begin
+  select exists(
+    select 1 from shopping_carts sc
+    where sc.id = p_cart_id
+      and (sc.user_id = v_user_id
+        or exists (select 1 from cart_shares cs where cs.cart_id = sc.id and cs.shared_with_user_id = v_user_id))
+  ) into v_has_access;
+
+  if not v_has_access then
+    raise exception 'Access denied';
+  end if;
+
+  insert into shopping_cart_items (cart_id, product_id, product_name, product_barcode, price, original_price, quantity, added_by)
+  values (p_cart_id, p_product_id, p_product_name, p_product_barcode, p_price, p_original_price, p_quantity, coalesce(p_added_by, v_user_id))
+  returning id into v_item_id;
+
+  return v_item_id;
+end;
+$$ language plpgsql security definer;
+
+-- Update cart item (bypasses RLS so shared users can edit items)
+create or replace function public.update_cart_item(
+  p_item_id uuid,
+  p_cart_id uuid,
+  p_updates jsonb
+)
+returns void as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_has_access boolean;
+begin
+  select exists(
+    select 1 from shopping_carts sc
+    where sc.id = p_cart_id
+      and (sc.user_id = v_user_id
+        or exists (select 1 from cart_shares cs where cs.cart_id = sc.id and cs.shared_with_user_id = v_user_id))
+  ) into v_has_access;
+
+  if not v_has_access then
+    raise exception 'Access denied';
+  end if;
+
+  update shopping_cart_items set
+    quantity = coalesce((p_updates->>'quantity')::integer, quantity),
+    price = coalesce((p_updates->>'price')::numeric, price),
+    original_price = case when p_updates ? 'original_price' then (p_updates->>'original_price')::numeric else original_price end,
+    product_name = coalesce(p_updates->>'product_name', product_name),
+    product_barcode = case when p_updates ? 'product_barcode' then p_updates->>'product_barcode' else product_barcode end,
+    product_id = case when p_updates ? 'product_id' then (p_updates->>'product_id')::uuid else product_id end
+  where id = p_item_id and cart_id = p_cart_id;
+end;
+$$ language plpgsql security definer;
+
+-- Delete cart item (bypasses RLS so shared users can remove items)
+create or replace function public.delete_cart_item(p_item_id uuid, p_cart_id uuid)
+returns void as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_has_access boolean;
+begin
+  select exists(
+    select 1 from shopping_carts sc
+    where sc.id = p_cart_id
+      and (sc.user_id = v_user_id
+        or exists (select 1 from cart_shares cs where cs.cart_id = sc.id and cs.shared_with_user_id = v_user_id))
+  ) into v_has_access;
+
+  if not v_has_access then
+    raise exception 'Access denied';
+  end if;
+
+  delete from shopping_cart_items where id = p_item_id and cart_id = p_cart_id;
+end;
+$$ language plpgsql security definer;
+
+-- Recalculate cart total (bypasses RLS so shared users can trigger it)
+create or replace function public.recalculate_cart_total(p_cart_id uuid)
+returns void as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_has_access boolean;
+  v_total numeric;
+begin
+  select exists(
+    select 1 from shopping_carts sc
+    where sc.id = p_cart_id
+      and (sc.user_id = v_user_id
+        or exists (select 1 from cart_shares cs where cs.cart_id = sc.id and cs.shared_with_user_id = v_user_id))
+  ) into v_has_access;
+
+  if not v_has_access then return; end if;
+
+  select coalesce(sum(price * quantity), 0) into v_total
+  from shopping_cart_items where cart_id = p_cart_id;
+
+  update shopping_carts set total = v_total where id = p_cart_id;
+end;
+$$ language plpgsql security definer;
+
+-- Get cart store_id (bypasses RLS for shared users)
+create or replace function public.get_cart_store_id(p_cart_id uuid)
+returns uuid as $$
+declare
+  v_user_id uuid := auth.uid();
+begin
+  return (
+    select sc.store_id from shopping_carts sc
+    where sc.id = p_cart_id
+      and (sc.user_id = v_user_id
+        or exists (select 1 from cart_shares cs where cs.cart_id = sc.id and cs.shared_with_user_id = v_user_id))
+  );
+end;
+$$ language plpgsql security definer stable;
+
+-- Get lists shared with current user (bypasses RLS)
+create or replace function public.get_shared_lists_for_user()
+returns jsonb as $$
+declare
+  v_user_id uuid := auth.uid();
+begin
+  return coalesce((
+    select jsonb_agg(row_to_json(t))
+    from (
+      select ls.list_id, sl.name as list_name, ls.owner_id,
+             (select email from profiles where id = ls.owner_id) as owner_email
+      from list_shares ls
+      join shopping_lists sl on sl.id = ls.list_id
+      where ls.shared_with_user_id = v_user_id
+    ) t
+  ), '[]'::jsonb);
+end;
+$$ language plpgsql security definer stable;
+
+-- Insert list item (bypasses RLS so shared users can add items)
+create or replace function public.insert_list_item(
+  p_list_id uuid,
+  p_product_id uuid,
+  p_product_name text,
+  p_planned_quantity numeric,
+  p_added_by uuid default null
+)
+returns uuid as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_has_access boolean;
+  v_item_id uuid;
+begin
+  select exists(
+    select 1 from shopping_lists sl
+    where sl.id = p_list_id
+      and (sl.user_id = v_user_id
+        or exists (select 1 from list_shares ls where ls.list_id = sl.id and ls.shared_with_user_id = v_user_id))
+  ) into v_has_access;
+
+  if not v_has_access then
+    raise exception 'Access denied';
+  end if;
+
+  insert into shopping_list_items (list_id, product_id, product_name, planned_quantity, added_by)
+  values (p_list_id, p_product_id, p_product_name, p_planned_quantity, coalesce(p_added_by, v_user_id))
+  returning id into v_item_id;
+
+  return v_item_id;
+end;
+$$ language plpgsql security definer;
+
+-- Update list item (bypasses RLS so shared users can edit items)
+create or replace function public.update_list_item(
+  p_item_id uuid,
+  p_list_id uuid,
+  p_updates jsonb
+)
+returns void as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_has_access boolean;
+begin
+  select exists(
+    select 1 from shopping_lists sl
+    where sl.id = p_list_id
+      and (sl.user_id = v_user_id
+        or exists (select 1 from list_shares ls where ls.list_id = sl.id and ls.shared_with_user_id = v_user_id))
+  ) into v_has_access;
+
+  if not v_has_access then
+    raise exception 'Access denied';
+  end if;
+
+  update shopping_list_items set
+    planned_quantity = coalesce((p_updates->>'planned_quantity')::numeric, planned_quantity),
+    product_name = coalesce(p_updates->>'product_name', product_name),
+    product_id = case when p_updates ? 'product_id' then (p_updates->>'product_id')::uuid else product_id end
+  where id = p_item_id and list_id = p_list_id;
+end;
+$$ language plpgsql security definer;
+
+-- Delete list item (bypasses RLS so shared users can remove items)
+create or replace function public.delete_list_item(p_item_id uuid, p_list_id uuid)
+returns void as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_has_access boolean;
+begin
+  select exists(
+    select 1 from shopping_lists sl
+    where sl.id = p_list_id
+      and (sl.user_id = v_user_id
+        or exists (select 1 from list_shares ls where ls.list_id = sl.id and ls.shared_with_user_id = v_user_id))
+  ) into v_has_access;
+
+  if not v_has_access then
+    raise exception 'Access denied';
+  end if;
+
+  delete from shopping_list_items where id = p_item_id and list_id = p_list_id;
+end;
+$$ language plpgsql security definer;
 
 -- Validate invite code (callable by anon for signup)
 create or replace function public.validate_invite_code(invite_code text)
@@ -467,17 +796,20 @@ create policy "shopping_list_items_select" on shopping_list_items
 
 create policy "shopping_list_items_insert" on shopping_list_items
   for insert to authenticated with check (
-    exists (select 1 from shopping_lists where id = list_id and user_id = auth.uid())
+    exists (select 1 from shopping_lists sl where sl.id = list_id
+      and (sl.user_id = auth.uid() or exists (select 1 from list_shares ls where ls.list_id = sl.id and ls.shared_with_user_id = auth.uid())))
   );
 
 create policy "shopping_list_items_update" on shopping_list_items
   for update to authenticated using (
-    exists (select 1 from shopping_lists where id = list_id and user_id = auth.uid())
+    exists (select 1 from shopping_lists sl where sl.id = list_id
+      and (sl.user_id = auth.uid() or exists (select 1 from list_shares ls where ls.list_id = sl.id and ls.shared_with_user_id = auth.uid())))
   );
 
 create policy "shopping_list_items_delete" on shopping_list_items
   for delete to authenticated using (
-    exists (select 1 from shopping_lists where id = list_id and user_id = auth.uid())
+    exists (select 1 from shopping_lists sl where sl.id = list_id
+      and (sl.user_id = auth.uid() or exists (select 1 from list_shares ls where ls.list_id = sl.id and ls.shared_with_user_id = auth.uid())))
   );
 
 -- Cart shares: owner sees all; shared member sees their record

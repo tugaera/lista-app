@@ -114,78 +114,98 @@ export async function addListItem(
     }
   }
 
-  // Check if product already in this list — merge quantity
-  if (productId) {
-    const { data: existingItem } = await supabase
-      .from("shopping_list_items")
-      .select("id, planned_quantity")
-      .eq("list_id", listId)
-      .eq("product_id", productId)
-      .single();
+  // Fetch existing items via RPC (bypasses RLS for shared users)
+  const { data: rpcItems } = await supabase.rpc("get_list_items", { p_list_id: listId });
+  const existingItems = rpcItems
+    ? (rpcItems as unknown as Array<Record<string, unknown>>).map((r) => ({
+        id: r.id as string,
+        product_id: (r.product_id as string) ?? null,
+        product_name: (r.product_name as string) ?? null,
+        planned_quantity: r.planned_quantity as number,
+      }))
+    : null;
 
+  // Check if product already in this list — merge quantity
+  if (productId && existingItems) {
+    const existingItem = existingItems.find((i) => i.product_id === productId);
     if (existingItem) {
       const newQty = existingItem.planned_quantity + quantity;
-      const { error: updateError } = await supabase
-        .from("shopping_list_items")
-        .update({ planned_quantity: newQty })
-        .eq("id", existingItem.id);
-
-      if (updateError) {
-        return { error: updateError.message };
+      const { error: rpcErr } = await supabase.rpc("update_list_item", {
+        p_item_id: existingItem.id,
+        p_list_id: listId,
+        p_updates: { planned_quantity: newQty },
+      });
+      if (rpcErr) {
+        // Fallback
+        const { error: updateError } = await supabase
+          .from("shopping_list_items")
+          .update({ planned_quantity: newQty })
+          .eq("id", existingItem.id);
+        if (updateError) return { error: updateError.message };
       }
-
       return { item: { id: existingItem.id }, merged: true };
     }
   }
 
   // Also check for duplicate by product_name (free text items)
-  if (!productId) {
-    const { data: existingByName } = await supabase
-      .from("shopping_list_items")
-      .select("id, planned_quantity")
-      .eq("list_id", listId)
-      .is("product_id", null)
-      .ilike("product_name", name)
-      .single();
-
+  if (!productId && existingItems) {
+    const existingByName = existingItems.find(
+      (i) => !i.product_id && i.product_name?.toLowerCase() === name.toLowerCase()
+    );
     if (existingByName) {
       const newQty = existingByName.planned_quantity + quantity;
-      const { error: updateError } = await supabase
-        .from("shopping_list_items")
-        .update({ planned_quantity: newQty })
-        .eq("id", existingByName.id);
-
-      if (updateError) {
-        return { error: updateError.message };
+      const { error: rpcErr } = await supabase.rpc("update_list_item", {
+        p_item_id: existingByName.id,
+        p_list_id: listId,
+        p_updates: { planned_quantity: newQty },
+      });
+      if (rpcErr) {
+        const { error: updateError } = await supabase
+          .from("shopping_list_items")
+          .update({ planned_quantity: newQty })
+          .eq("id", existingByName.id);
+        if (updateError) return { error: updateError.message };
       }
-
       return { item: { id: existingByName.id }, merged: true };
     }
   }
 
-  const insertPayload: Record<string, unknown> = {
-    list_id: listId,
-    planned_quantity: quantity,
-    product_name: name,
+  // Insert via security definer RPC (bypasses RLS for shared users)
+  const { data: newItemId, error: rpcInsertErr } = await supabase.rpc("insert_list_item", {
+    p_list_id: listId,
+    p_product_id: productId,
+    p_product_name: name,
+    p_planned_quantity: quantity,
+    p_added_by: user.id,
+  });
+
+  if (rpcInsertErr) {
+    // Fallback to direct insert (works for owner)
+    const insertPayload: Record<string, unknown> = {
+      list_id: listId,
+      planned_quantity: quantity,
+      product_name: name,
+      added_by: user.id,
+    };
+    if (productId) insertPayload.product_id = productId;
+
+    const { data, error } = await supabase
+      .from("shopping_list_items")
+      .insert(insertPayload as never)
+      .select("id, planned_quantity, product_id, product_name")
+      .single();
+
+    if (error) return { error: error.message };
+    return { item: data, productName: name };
+  }
+
+  return {
+    item: { id: newItemId as string, planned_quantity: quantity, product_id: productId, product_name: name },
+    productName: name,
   };
-  if (productId) {
-    insertPayload.product_id = productId;
-  }
-
-  const { data, error } = await supabase
-    .from("shopping_list_items")
-    .insert(insertPayload as never)
-    .select("id, planned_quantity, product_id, product_name")
-    .single();
-
-  if (error) {
-    return { error: error.message };
-  }
-
-  return { item: data, productName: name };
 }
 
-export async function removeListItem(itemId: string) {
+export async function removeListItem(itemId: string, listId?: string) {
   const supabase = await createServerSupabaseClient();
   const {
     data: { user },
@@ -195,6 +215,16 @@ export async function removeListItem(itemId: string) {
     redirect("/auth/login");
   }
 
+  if (listId) {
+    // Use security definer RPC (works for shared users)
+    const { error: rpcErr } = await supabase.rpc("delete_list_item", {
+      p_item_id: itemId,
+      p_list_id: listId,
+    });
+    if (!rpcErr) return { success: true };
+  }
+
+  // Fallback to direct delete
   const { error } = await supabase
     .from("shopping_list_items")
     .delete()
@@ -209,7 +239,8 @@ export async function removeListItem(itemId: string) {
 
 export async function updateListItemQuantity(
   itemId: string,
-  quantity: number
+  quantity: number,
+  listId?: string
 ) {
   const supabase = await createServerSupabaseClient();
   const {
@@ -220,6 +251,17 @@ export async function updateListItemQuantity(
     redirect("/auth/login");
   }
 
+  if (listId) {
+    // Use security definer RPC (works for shared users)
+    const { error: rpcErr } = await supabase.rpc("update_list_item", {
+      p_item_id: itemId,
+      p_list_id: listId,
+      p_updates: { planned_quantity: quantity },
+    });
+    if (!rpcErr) return { success: true };
+  }
+
+  // Fallback to direct update
   const { error } = await supabase
     .from("shopping_list_items")
     .update({ planned_quantity: quantity })

@@ -23,6 +23,7 @@ import type { ShoppingList, ShoppingListItem, Product } from "@/types/database";
 
 interface ListItemWithProduct extends ShoppingListItem {
   products: Pick<Product, "id" | "name" | "barcode"> | null;
+  added_by_email?: string | null;
 }
 
 interface ListDetailProps {
@@ -46,6 +47,8 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
   const [barcodeStatus, setBarcodeStatus] = useState<string | null>(null);
   const scannedBarcodeRef = useRef<string | null>(null);
   const scannedNameRef = useRef<string | null>(null);
+
+  const isShared = !isOwner || initialShares.length > 0;
 
   // Share panel
   const [showSharePanel, setShowSharePanel] = useState(false);
@@ -169,7 +172,7 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
     const itemId = deleteConfirm;
     setItems((prev) => prev.filter((i) => i.id !== itemId));
     setDeleteConfirm(null);
-    startTransition(async () => { await removeListItem(itemId); });
+    startTransition(async () => { await removeListItem(itemId, list.id); });
   }
 
   function handleStartEdit(itemId: string, currentQuantity: number) {
@@ -184,7 +187,7 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
       prev.map((i) => (i.id === itemId ? { ...i, planned_quantity: newQty } : i)),
     );
     setEditingItem(null);
-    startTransition(async () => { await updateListItemQuantity(itemId, newQty); });
+    startTransition(async () => { await updateListItemQuantity(itemId, newQty, list.id); });
   }
 
   const deleteItem = items.find((i) => i.id === deleteConfirm);
@@ -342,15 +345,25 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
         )}
       </div>
 
-      {/* Add item form — owner only */}
-      {isOwner && <Card className="mb-6">
+      {/* Add item form */}
+      <Card className="mb-6">
         <form onSubmit={handleAddItem} className="space-y-3">
           {barcodeStatus && (
             <p className="text-xs font-medium text-emerald-600">{barcodeStatus}</p>
           )}
           {error && <p className="text-xs text-red-600">{error}</p>}
-          {/* Row 1: product name + scan */}
+          {/* Row 1: scan + product name */}
           <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setShowScanner(true)}
+              className="flex shrink-0 items-center justify-center rounded-lg border border-gray-300 px-3 text-gray-500 hover:border-blue-400 hover:text-blue-600"
+              title="Scan barcode"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
+              </svg>
+            </button>
             <div className="flex-1 min-w-0">
               <ProductSearch
                 onSelect={handleProductSelect}
@@ -362,16 +375,6 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
                 }}
               />
             </div>
-            <button
-              type="button"
-              onClick={() => setShowScanner(true)}
-              className="flex shrink-0 items-center justify-center rounded-lg border border-gray-300 px-3 text-gray-500 hover:border-blue-400 hover:text-blue-600"
-              title="Scan barcode"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
-              </svg>
-            </button>
           </div>
           {/* Row 2: qty + add */}
           <div className="flex gap-2">
@@ -387,7 +390,7 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
             <Button type="submit" loading={isPending} className="flex-1">Add</Button>
           </div>
         </form>
-      </Card>}
+      </Card>
 
       {/* Item list */}
       {items.length === 0 ? (
@@ -398,10 +401,22 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
             <Card key={item.id}>
               <div className="flex items-center justify-between">
                 <div className="flex-1">
-                  <p className="font-medium text-gray-900">
-                    {item.products?.name ?? item.product_name ?? "Unknown product"}
-                  </p>
-                  {isOwner && editingItem === item.id ? (
+                  <div className="flex items-center gap-1.5">
+                    <p className="font-medium text-gray-900">
+                      {item.products?.name ?? item.product_name ?? "Unknown product"}
+                    </p>
+                    {isShared && item.added_by_email && (
+                      <div className="group relative shrink-0">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                        </svg>
+                        <span className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-md bg-gray-800 px-2 py-1 text-xs text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
+                          {item.added_by_email}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                  {editingItem === item.id ? (
                     <div className="mt-1 flex items-center gap-2">
                       <Input
                         type="number"
@@ -417,18 +432,16 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
                     </div>
                   ) : (
                     <p
-                      className={`text-sm text-gray-500 ${isOwner ? "cursor-pointer hover:text-emerald-600" : ""}`}
-                      onClick={() => isOwner && handleStartEdit(item.id, item.planned_quantity)}
+                      className="text-sm text-gray-500 cursor-pointer hover:text-emerald-600"
+                      onClick={() => handleStartEdit(item.id, item.planned_quantity)}
                     >
                       Qty: {item.planned_quantity}
                     </p>
                   )}
                 </div>
-                {isOwner && (
-                  <Button variant="danger" size="sm" onClick={() => setDeleteConfirm(item.id)}>
-                    Remove
-                  </Button>
-                )}
+                <Button variant="danger" size="sm" onClick={() => setDeleteConfirm(item.id)}>
+                  Remove
+                </Button>
               </div>
             </Card>
           ))}

@@ -53,8 +53,8 @@ export function ProductSearch({
       setIsLoading(true);
       const supabase = createBrowserSupabaseClient();
 
-      // Fetch more rows than we need so we can deduplicate per product
-      const { data } = await supabase
+      // 1. Search latest_product_prices (products with price history)
+      const { data: priceData } = await supabase
         .from("latest_product_prices")
         .select("product_id, product_name, price, store_id, store_name, created_at")
         .ilike("product_name", `%${query}%`)
@@ -64,10 +64,9 @@ export function ProductSearch({
       // Deduplicate: one result per product_id
       // Priority: row whose store_id matches the current cart store, else most recent row
       const seen = new Map<string, ProductResult>();
-      for (const row of data ?? []) {
+      for (const row of priceData ?? []) {
         const existing = seen.get(row.product_id);
         if (!existing) {
-          // First time we see this product — add it
           seen.set(row.product_id, {
             id: row.product_id,
             name: row.product_name,
@@ -75,12 +74,30 @@ export function ProductSearch({
             storeName: row.store_name,
           });
         } else if (storeId && row.store_id === storeId) {
-          // We already have this product but found a row matching current store — prefer it
           seen.set(row.product_id, {
             id: row.product_id,
             name: row.product_name,
             lastPrice: row.price,
             storeName: row.store_name,
+          });
+        }
+      }
+
+      // 2. Also search products table directly (includes products without price history)
+      const { data: productData } = await supabase
+        .from("products")
+        .select("id, name")
+        .ilike("name", `%${query}%`)
+        .eq("is_active", true)
+        .limit(20);
+
+      for (const row of productData ?? []) {
+        if (!seen.has(row.id)) {
+          seen.set(row.id, {
+            id: row.id,
+            name: row.name,
+            lastPrice: null,
+            storeName: null,
           });
         }
       }

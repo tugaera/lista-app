@@ -16,49 +16,35 @@ export default async function ListDetailRoute({
 
   if (!user) redirect("/auth/login");
 
-  // Try fetching as owner first
-  const { data: ownList } = await supabase
-    .from("shopping_lists")
-    .select("id, user_id, name, created_at")
-    .eq("id", id)
-    .eq("user_id", user.id)
-    .maybeSingle();
+  // Use security definer RPC to bypass RLS (works for owner and shared users)
+  const { data: listData } = await supabase.rpc("get_list_by_id", { p_list_id: id });
 
-  // If not owner, check if shared with this user (RLS updated by migration 008)
-  const { data: list } = ownList
-    ? { data: ownList }
-    : await supabase
-        .from("shopping_lists")
-        .select("id, user_id, name, created_at")
-        .eq("id", id)
-        .maybeSingle();
+  const list = listData as unknown as { id: string; user_id: string; name: string; created_at: string } | null;
 
   if (!list) redirect("/lists");
 
   const isOwner = list.user_id === user.id;
 
-  const [itemsResult, shares] = await Promise.all([
-    supabase
-      .from("shopping_list_items")
-      .select(
-        `
-        id,
-        list_id,
-        product_id,
-        planned_quantity,
-        created_at,
-        products ( id, name, barcode )
-      `
-      )
-      .eq("list_id", id)
-      .order("created_at", { ascending: true }),
-    isOwner ? getListShares(id) : Promise.resolve([]),
-  ]);
+  // Fetch items via security definer RPC
+  const { data: itemsData } = await supabase.rpc("get_list_items", { p_list_id: id });
+
+  const items = (itemsData as unknown as Array<{
+    id: string;
+    list_id: string;
+    product_id: string | null;
+    product_name: string | null;
+    planned_quantity: number;
+    created_at: string;
+    products: { id: string; name: string; barcode: string | null } | null;
+    added_by_email: string | null;
+  }>) ?? [];
+
+  const shares = isOwner ? await getListShares(id) : [];
 
   return (
     <ListDetail
       list={list}
-      items={(itemsResult.data ?? []) as never[]}
+      items={items as never[]}
       isOwner={isOwner}
       initialShares={shares}
     />

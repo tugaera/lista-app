@@ -124,7 +124,7 @@ export function QuickAddForm({
 
     startTransition(async () => {
       try {
-        const item = await addCartItem(cartId, {
+        const result = await addCartItem(cartId, {
           productName: productName.trim(),
           price: parsedPrice,
           originalPrice: hasDiscount ? originalPrice : null,
@@ -132,7 +132,11 @@ export function QuickAddForm({
           storeId,
           barcode,
         });
-        onItemAdded(item);
+        if ("error" in result) {
+          setError(result.error);
+          return;
+        }
+        onItemAdded(result);
         setProductName("");
         setPrice("");
         setOriginalPrice(null);

@@ -21,9 +21,10 @@ type CartItemListProps = {
   cartId: string;
   onItemRemoved: (itemId: string) => void;
   onItemUpdated: (itemId: string, newQuantity: number) => void;
+  isShared?: boolean;
 };
 
-export function CartItemList({ items, cartId, onItemRemoved, onItemUpdated }: CartItemListProps) {
+export function CartItemList({ items, cartId, onItemRemoved, onItemUpdated, isShared = false }: CartItemListProps) {
   const total = items.reduce((sum, item) => sum + item.subtotal, 0);
   const totalSavings = items.reduce((sum, item) => {
     if (item.originalPrice && item.originalPrice > item.price) {
@@ -66,6 +67,7 @@ export function CartItemList({ items, cartId, onItemRemoved, onItemUpdated }: Ca
                 cartId={cartId}
                 onDelete={() => setDeleteConfirm(item.id)}
                 onItemUpdated={onItemUpdated}
+                isShared={isShared}
               />
             ))}
           </ul>
@@ -239,11 +241,13 @@ function CartItemRow({
   cartId,
   onDelete,
   onItemUpdated,
+  isShared = false,
 }: {
   item: CartItemDisplay;
   cartId: string;
   onDelete: () => void;
   onItemUpdated: (itemId: string, newQuantity: number) => void;
+  isShared?: boolean;
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editQuantity, setEditQuantity] = useState(String(item.quantity));
@@ -271,7 +275,19 @@ function CartItemRow({
   return (
     <li className={`relative flex items-center gap-3 px-4 py-3 ${isPending ? "opacity-50" : ""}`}>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-gray-900">{item.productName}</p>
+        <div className="flex items-center gap-1.5">
+          <p className="truncate text-sm font-medium text-gray-900">{item.productName}</p>
+          {isShared && item.addedByEmail && (
+            <div className="group relative shrink-0">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+              </svg>
+              <span className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-md bg-gray-800 px-2 py-1 text-xs text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
+                {item.addedByEmail}
+              </span>
+            </div>
+          )}
+        </div>
         <div className="flex items-center gap-1.5">
           {item.originalPrice && item.originalPrice > item.price ? (
             <>

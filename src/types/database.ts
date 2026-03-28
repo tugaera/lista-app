@@ -159,6 +159,7 @@ export interface Database {
           product_id: string | null;
           product_name: string | null;
           planned_quantity: number;
+          added_by: string | null;
           created_at: string;
         };
         Insert: {
@@ -167,6 +168,7 @@ export interface Database {
           product_id?: string | null;
           product_name?: string | null;
           planned_quantity: number;
+          added_by?: string | null;
           created_at?: string;
         };
         Update: {
@@ -175,6 +177,7 @@ export interface Database {
           product_id?: string | null;
           product_name?: string | null;
           planned_quantity?: number;
+          added_by?: string | null;
           created_at?: string;
         };
         Relationships: [
@@ -340,6 +343,7 @@ export interface Database {
           price: number;
           original_price: number | null;
           quantity: number;
+          added_by: string | null;
           created_at: string;
         };
         Insert: {
@@ -352,6 +356,7 @@ export interface Database {
           price: number;
           original_price?: number | null;
           quantity: number;
+          added_by?: string | null;
           created_at?: string;
         };
         Update: {
@@ -364,6 +369,7 @@ export interface Database {
           price?: number;
           original_price?: number | null;
           quantity?: number;
+          added_by?: string | null;
           created_at?: string;
         };
         Relationships: [
@@ -498,6 +504,77 @@ export interface Database {
       get_my_role: {
         Args: Record<string, never>;
         Returns: string;
+      };
+      get_cart_items: {
+        Args: { p_cart_id: string };
+        Returns: unknown;
+      };
+      get_shared_lists_for_user: {
+        Args: Record<string, never>;
+        Returns: unknown;
+      };
+      get_list_by_id: {
+        Args: { p_list_id: string };
+        Returns: unknown;
+      };
+      get_list_items: {
+        Args: { p_list_id: string };
+        Returns: unknown;
+      };
+      get_cart_store_id: {
+        Args: { p_cart_id: string };
+        Returns: string | null;
+      };
+      recalculate_cart_total: {
+        Args: { p_cart_id: string };
+        Returns: void;
+      };
+      insert_cart_item: {
+        Args: {
+          p_cart_id: string;
+          p_product_id: string | null;
+          p_product_name: string;
+          p_product_barcode: string | null;
+          p_price: number;
+          p_original_price: number | null;
+          p_quantity: number;
+          p_added_by: string | null;
+        };
+        Returns: string;
+      };
+      update_cart_item: {
+        Args: {
+          p_item_id: string;
+          p_cart_id: string;
+          p_updates: Record<string, unknown>;
+        };
+        Returns: void;
+      };
+      delete_cart_item: {
+        Args: { p_item_id: string; p_cart_id: string };
+        Returns: void;
+      };
+      insert_list_item: {
+        Args: {
+          p_list_id: string;
+          p_product_id: string | null;
+          p_product_name: string;
+          p_planned_quantity: number;
+          p_added_by: string | null;
+        };
+        Returns: string;
+      };
+      update_list_item: {
+        Args: {
+          p_item_id: string;
+          p_list_id: string;
+          p_updates: Record<string, unknown>;
+        };
+        Returns: void;
+      };
+      delete_list_item: {
+        Args: { p_item_id: string; p_list_id: string };
+        Returns: void;
       };
     };
     Enums: {
