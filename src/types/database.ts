@@ -554,6 +554,28 @@ export interface Database {
         Args: { p_item_id: string; p_cart_id: string };
         Returns: void;
       };
+      insert_list_item: {
+        Args: {
+          p_list_id: string;
+          p_product_id: string | null;
+          p_product_name: string;
+          p_planned_quantity: number;
+          p_added_by: string | null;
+        };
+        Returns: string;
+      };
+      update_list_item: {
+        Args: {
+          p_item_id: string;
+          p_list_id: string;
+          p_updates: Record<string, unknown>;
+        };
+        Returns: void;
+      };
+      delete_list_item: {
+        Args: { p_item_id: string; p_list_id: string };
+        Returns: void;
+      };
     };
     Enums: {
       user_role: "admin" | "moderator" | "user";

@@ -479,6 +479,91 @@ begin
 end;
 $$ language plpgsql security definer stable;
 
+-- Insert list item (bypasses RLS so shared users can add items)
+create or replace function public.insert_list_item(
+  p_list_id uuid,
+  p_product_id uuid,
+  p_product_name text,
+  p_planned_quantity numeric,
+  p_added_by uuid default null
+)
+returns uuid as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_has_access boolean;
+  v_item_id uuid;
+begin
+  select exists(
+    select 1 from shopping_lists sl
+    where sl.id = p_list_id
+      and (sl.user_id = v_user_id
+        or exists (select 1 from list_shares ls where ls.list_id = sl.id and ls.shared_with_user_id = v_user_id))
+  ) into v_has_access;
+
+  if not v_has_access then
+    raise exception 'Access denied';
+  end if;
+
+  insert into shopping_list_items (list_id, product_id, product_name, planned_quantity, added_by)
+  values (p_list_id, p_product_id, p_product_name, p_planned_quantity, coalesce(p_added_by, v_user_id))
+  returning id into v_item_id;
+
+  return v_item_id;
+end;
+$$ language plpgsql security definer;
+
+-- Update list item (bypasses RLS so shared users can edit items)
+create or replace function public.update_list_item(
+  p_item_id uuid,
+  p_list_id uuid,
+  p_updates jsonb
+)
+returns void as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_has_access boolean;
+begin
+  select exists(
+    select 1 from shopping_lists sl
+    where sl.id = p_list_id
+      and (sl.user_id = v_user_id
+        or exists (select 1 from list_shares ls where ls.list_id = sl.id and ls.shared_with_user_id = v_user_id))
+  ) into v_has_access;
+
+  if not v_has_access then
+    raise exception 'Access denied';
+  end if;
+
+  update shopping_list_items set
+    planned_quantity = coalesce((p_updates->>'planned_quantity')::numeric, planned_quantity),
+    product_name = coalesce(p_updates->>'product_name', product_name),
+    product_id = case when p_updates ? 'product_id' then (p_updates->>'product_id')::uuid else product_id end
+  where id = p_item_id and list_id = p_list_id;
+end;
+$$ language plpgsql security definer;
+
+-- Delete list item (bypasses RLS so shared users can remove items)
+create or replace function public.delete_list_item(p_item_id uuid, p_list_id uuid)
+returns void as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_has_access boolean;
+begin
+  select exists(
+    select 1 from shopping_lists sl
+    where sl.id = p_list_id
+      and (sl.user_id = v_user_id
+        or exists (select 1 from list_shares ls where ls.list_id = sl.id and ls.shared_with_user_id = v_user_id))
+  ) into v_has_access;
+
+  if not v_has_access then
+    raise exception 'Access denied';
+  end if;
+
+  delete from shopping_list_items where id = p_item_id and list_id = p_list_id;
+end;
+$$ language plpgsql security definer;
+
 -- Validate invite code (callable by anon for signup)
 create or replace function public.validate_invite_code(invite_code text)
 returns boolean as $$

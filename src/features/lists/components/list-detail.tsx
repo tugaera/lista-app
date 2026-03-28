@@ -172,7 +172,7 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
     const itemId = deleteConfirm;
     setItems((prev) => prev.filter((i) => i.id !== itemId));
     setDeleteConfirm(null);
-    startTransition(async () => { await removeListItem(itemId); });
+    startTransition(async () => { await removeListItem(itemId, list.id); });
   }
 
   function handleStartEdit(itemId: string, currentQuantity: number) {
@@ -187,7 +187,7 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
       prev.map((i) => (i.id === itemId ? { ...i, planned_quantity: newQty } : i)),
     );
     setEditingItem(null);
-    startTransition(async () => { await updateListItemQuantity(itemId, newQty); });
+    startTransition(async () => { await updateListItemQuantity(itemId, newQty, list.id); });
   }
 
   const deleteItem = items.find((i) => i.id === deleteConfirm);

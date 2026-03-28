@@ -560,6 +560,64 @@ $$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
 ALTER TABLE shopping_cart_items ADD COLUMN IF NOT EXISTS added_by uuid REFERENCES auth.users(id);
 ALTER TABLE shopping_list_items ADD COLUMN IF NOT EXISTS added_by uuid REFERENCES auth.users(id);
 
+-- === Migration 020: Security definer RPCs for list item CRUD (shared users) ===
+
+-- Insert list item (bypasses RLS so shared users can add items)
+CREATE OR REPLACE FUNCTION public.insert_list_item(
+  p_list_id uuid, p_product_id uuid, p_product_name text,
+  p_planned_quantity numeric, p_added_by uuid DEFAULT NULL
+) RETURNS uuid AS $$
+DECLARE
+  v_user_id uuid := auth.uid();
+  v_has_access boolean;
+  v_item_id uuid;
+BEGIN
+  SELECT EXISTS(SELECT 1 FROM shopping_lists sl WHERE sl.id = p_list_id
+    AND (sl.user_id = v_user_id OR EXISTS (SELECT 1 FROM list_shares ls WHERE ls.list_id = sl.id AND ls.shared_with_user_id = v_user_id))
+  ) INTO v_has_access;
+  IF NOT v_has_access THEN RAISE EXCEPTION 'Access denied'; END IF;
+  INSERT INTO shopping_list_items (list_id, product_id, product_name, planned_quantity, added_by)
+  VALUES (p_list_id, p_product_id, p_product_name, p_planned_quantity, COALESCE(p_added_by, v_user_id))
+  RETURNING id INTO v_item_id;
+  RETURN v_item_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Update list item (bypasses RLS so shared users can edit items)
+CREATE OR REPLACE FUNCTION public.update_list_item(
+  p_item_id uuid, p_list_id uuid, p_updates jsonb
+) RETURNS void AS $$
+DECLARE
+  v_user_id uuid := auth.uid();
+  v_has_access boolean;
+BEGIN
+  SELECT EXISTS(SELECT 1 FROM shopping_lists sl WHERE sl.id = p_list_id
+    AND (sl.user_id = v_user_id OR EXISTS (SELECT 1 FROM list_shares ls WHERE ls.list_id = sl.id AND ls.shared_with_user_id = v_user_id))
+  ) INTO v_has_access;
+  IF NOT v_has_access THEN RAISE EXCEPTION 'Access denied'; END IF;
+  UPDATE shopping_list_items SET
+    planned_quantity = COALESCE((p_updates->>'planned_quantity')::numeric, planned_quantity),
+    product_name = COALESCE(p_updates->>'product_name', product_name),
+    product_id = CASE WHEN p_updates ? 'product_id' THEN (p_updates->>'product_id')::uuid ELSE product_id END
+  WHERE id = p_item_id AND list_id = p_list_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Delete list item (bypasses RLS so shared users can remove items)
+CREATE OR REPLACE FUNCTION public.delete_list_item(p_item_id uuid, p_list_id uuid)
+RETURNS void AS $$
+DECLARE
+  v_user_id uuid := auth.uid();
+  v_has_access boolean;
+BEGIN
+  SELECT EXISTS(SELECT 1 FROM shopping_lists sl WHERE sl.id = p_list_id
+    AND (sl.user_id = v_user_id OR EXISTS (SELECT 1 FROM list_shares ls WHERE ls.list_id = sl.id AND ls.shared_with_user_id = v_user_id))
+  ) INTO v_has_access;
+  IF NOT v_has_access THEN RAISE EXCEPTION 'Access denied'; END IF;
+  DELETE FROM shopping_list_items WHERE id = p_item_id AND list_id = p_list_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
 -- ============================================================
 -- DONE! All migrations applied.
 -- ============================================================
