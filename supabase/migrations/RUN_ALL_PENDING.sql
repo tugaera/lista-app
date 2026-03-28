@@ -6,10 +6,12 @@
 -- === Migration 009: original_price on shopping_cart_items ===
 ALTER TABLE shopping_cart_items ADD COLUMN IF NOT EXISTS original_price numeric(10, 2);
 
--- === Migration 010: original_price on product_entries ===
+-- === Migration 010 + 011: original_price on product_entries + update view ===
+-- Must drop view first because it depends on the table columns
+DROP VIEW IF EXISTS latest_product_prices;
+
 ALTER TABLE product_entries ADD COLUMN IF NOT EXISTS original_price numeric(10, 2);
 
--- === Migration 011: update latest_product_prices view ===
 CREATE OR REPLACE VIEW latest_product_prices AS
 SELECT DISTINCT ON (pe.product_id)
   pe.product_id,
