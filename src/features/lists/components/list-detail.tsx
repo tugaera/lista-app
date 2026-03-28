@@ -349,8 +349,18 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
             <p className="text-xs font-medium text-emerald-600">{barcodeStatus}</p>
           )}
           {error && <p className="text-xs text-red-600">{error}</p>}
-          {/* Row 1: product name + scan */}
+          {/* Row 1: scan + product name */}
           <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setShowScanner(true)}
+              className="flex shrink-0 items-center justify-center rounded-lg border border-gray-300 px-3 text-gray-500 hover:border-blue-400 hover:text-blue-600"
+              title="Scan barcode"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
+              </svg>
+            </button>
             <div className="flex-1 min-w-0">
               <ProductSearch
                 onSelect={handleProductSelect}
@@ -362,16 +372,6 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
                 }}
               />
             </div>
-            <button
-              type="button"
-              onClick={() => setShowScanner(true)}
-              className="flex shrink-0 items-center justify-center rounded-lg border border-gray-300 px-3 text-gray-500 hover:border-blue-400 hover:text-blue-600"
-              title="Scan barcode"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
-              </svg>
-            </button>
           </div>
           {/* Row 2: qty + add */}
           <div className="flex gap-2">
