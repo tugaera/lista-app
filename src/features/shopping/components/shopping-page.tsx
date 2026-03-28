@@ -314,20 +314,26 @@ export function ShoppingPage({
       <header className="sticky top-0 z-30 border-b border-gray-200 bg-white px-4 py-3">
         <div className="mx-auto flex max-w-lg items-center gap-2">
           {/* Store selector */}
-          <select
-            value={storeId}
-            onChange={(e) => handleStoreChange(e.target.value)}
-            className={`min-w-0 flex-1 rounded-lg border px-3 py-1.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/20 ${
-              storeId
-                ? "border-emerald-200 bg-emerald-50 text-emerald-800 focus:border-emerald-400"
-                : "border-amber-200 bg-amber-50 text-amber-700 focus:border-amber-400"
-            }`}
-          >
-            <option value="">Select store…</option>
-            {stores.map((s) => (
-              <option key={s.id} value={s.id}>{s.name}</option>
-            ))}
-          </select>
+          {isSharedCart ? (
+            <div className="min-w-0 flex-1 rounded-lg border border-purple-200 bg-purple-50 px-3 py-1.5 text-sm font-medium text-purple-800">
+              {selectedStore?.name ?? "No store selected"}
+            </div>
+          ) : (
+            <select
+              value={storeId}
+              onChange={(e) => handleStoreChange(e.target.value)}
+              className={`min-w-0 flex-1 rounded-lg border px-3 py-1.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/20 ${
+                storeId
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-800 focus:border-emerald-400"
+                  : "border-amber-200 bg-amber-50 text-amber-700 focus:border-amber-400"
+              }`}
+            >
+              <option value="">Select store…</option>
+              {stores.map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
+          )}
 
           {/* Track list button */}
           <button
