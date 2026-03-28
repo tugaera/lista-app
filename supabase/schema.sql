@@ -324,6 +324,96 @@ begin
 end;
 $$ language plpgsql security definer stable;
 
+-- Insert cart item (bypasses RLS so shared users can add items)
+create or replace function public.insert_cart_item(
+  p_cart_id uuid,
+  p_product_id uuid,
+  p_product_name text,
+  p_product_barcode text,
+  p_price numeric,
+  p_original_price numeric,
+  p_quantity integer
+)
+returns uuid as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_has_access boolean;
+  v_item_id uuid;
+begin
+  select exists(
+    select 1 from shopping_carts sc
+    where sc.id = p_cart_id
+      and (sc.user_id = v_user_id
+        or exists (select 1 from cart_shares cs where cs.cart_id = sc.id and cs.shared_with_user_id = v_user_id))
+  ) into v_has_access;
+
+  if not v_has_access then
+    raise exception 'Access denied';
+  end if;
+
+  insert into shopping_cart_items (cart_id, product_id, product_name, product_barcode, price, original_price, quantity)
+  values (p_cart_id, p_product_id, p_product_name, p_product_barcode, p_price, p_original_price, p_quantity)
+  returning id into v_item_id;
+
+  return v_item_id;
+end;
+$$ language plpgsql security definer;
+
+-- Update cart item (bypasses RLS so shared users can edit items)
+create or replace function public.update_cart_item(
+  p_item_id uuid,
+  p_cart_id uuid,
+  p_updates jsonb
+)
+returns void as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_has_access boolean;
+begin
+  select exists(
+    select 1 from shopping_carts sc
+    where sc.id = p_cart_id
+      and (sc.user_id = v_user_id
+        or exists (select 1 from cart_shares cs where cs.cart_id = sc.id and cs.shared_with_user_id = v_user_id))
+  ) into v_has_access;
+
+  if not v_has_access then
+    raise exception 'Access denied';
+  end if;
+
+  update shopping_cart_items set
+    quantity = coalesce((p_updates->>'quantity')::integer, quantity),
+    price = coalesce((p_updates->>'price')::numeric, price),
+    original_price = case when p_updates ? 'original_price' then (p_updates->>'original_price')::numeric else original_price end,
+    product_name = coalesce(p_updates->>'product_name', product_name),
+    product_barcode = case when p_updates ? 'product_barcode' then p_updates->>'product_barcode' else product_barcode end,
+    product_id = case when p_updates ? 'product_id' then (p_updates->>'product_id')::uuid else product_id end
+  where id = p_item_id and cart_id = p_cart_id;
+end;
+$$ language plpgsql security definer;
+
+-- Delete cart item (bypasses RLS so shared users can remove items)
+create or replace function public.delete_cart_item(p_item_id uuid, p_cart_id uuid)
+returns void as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_has_access boolean;
+begin
+  select exists(
+    select 1 from shopping_carts sc
+    where sc.id = p_cart_id
+      and (sc.user_id = v_user_id
+        or exists (select 1 from cart_shares cs where cs.cart_id = sc.id and cs.shared_with_user_id = v_user_id))
+  ) into v_has_access;
+
+  if not v_has_access then
+    raise exception 'Access denied';
+  end if;
+
+  delete from shopping_cart_items where id = p_item_id and cart_id = p_cart_id;
+end;
+$$ language plpgsql security definer;
+
 -- Recalculate cart total (bypasses RLS so shared users can trigger it)
 create or replace function public.recalculate_cart_total(p_cart_id uuid)
 returns void as $$

@@ -134,17 +134,35 @@ export async function addCartItem(
   // Merge quantity if duplicate found
   if (existingItemId) {
     const newQuantity = existingQuantity + data.quantity;
-    await supabase
-      .from("shopping_cart_items")
-      .update({
+
+    // Use security definer RPC to bypass RLS for shared users
+    const { error: updateErr } = await supabase.rpc("update_cart_item", {
+      p_item_id: existingItemId,
+      p_cart_id: cartId,
+      p_updates: {
         quantity: newQuantity,
         price: data.price,
         original_price: data.originalPrice ?? null,
         product_name: data.productName,
         product_barcode: data.barcode ?? null,
         product_id: productId,
-      })
-      .eq("id", existingItemId);
+      },
+    });
+
+    if (updateErr) {
+      // Fallback to direct update (works for owner)
+      await supabase
+        .from("shopping_cart_items")
+        .update({
+          quantity: newQuantity,
+          price: data.price,
+          original_price: data.originalPrice ?? null,
+          product_name: data.productName,
+          product_barcode: data.barcode ?? null,
+          product_id: productId,
+        })
+        .eq("id", existingItemId);
+    }
 
     await recalculateCartTotal(cartId);
 
@@ -161,30 +179,57 @@ export async function addCartItem(
     };
   }
 
-  // Insert new cart item (original_price requires migration 009)
-  const insertPayload: Record<string, unknown> = {
-    cart_id: cartId,
-    product_id: productId,
-    product_name: data.productName,
-    product_barcode: data.barcode ?? null,
-    price: data.price,
-    quantity: data.quantity,
-  };
-  if (data.originalPrice != null) insertPayload.original_price = data.originalPrice;
+  // Insert new cart item via security definer RPC (bypasses RLS for shared users)
+  const { data: newItemId, error: rpcInsertErr } = await supabase.rpc("insert_cart_item", {
+    p_cart_id: cartId,
+    p_product_id: productId,
+    p_product_name: data.productName,
+    p_product_barcode: data.barcode ?? null,
+    p_price: data.price,
+    p_original_price: data.originalPrice ?? null,
+    p_quantity: data.quantity,
+  });
 
-  const { data: cartItem, error: cartItemError } = await supabase
-    .from("shopping_cart_items")
-    .insert(insertPayload as never)
-    .select("id")
-    .single();
+  if (rpcInsertErr) {
+    // Fallback to direct insert (works for owner)
+    const insertPayload: Record<string, unknown> = {
+      cart_id: cartId,
+      product_id: productId,
+      product_name: data.productName,
+      product_barcode: data.barcode ?? null,
+      price: data.price,
+      quantity: data.quantity,
+    };
+    if (data.originalPrice != null) insertPayload.original_price = data.originalPrice;
 
-  if (cartItemError)
-    return { error: `Failed to add cart item: ${cartItemError.message}` };
+    const { data: cartItem, error: cartItemError } = await supabase
+      .from("shopping_cart_items")
+      .insert(insertPayload as never)
+      .select("id")
+      .single();
+
+    if (cartItemError)
+      return { error: `Failed to add cart item: ${cartItemError.message}` };
+
+    await recalculateCartTotal(cartId);
+
+    return {
+      id: cartItem.id,
+      productId,
+      productName: data.productName,
+      productBarcode: data.barcode ?? null,
+      price: data.price,
+      originalPrice: data.originalPrice ?? null,
+      quantity: data.quantity,
+      subtotal: data.price * data.quantity,
+      merged: false,
+    };
+  }
 
   await recalculateCartTotal(cartId);
 
   return {
-    id: cartItem.id,
+    id: newItemId as string,
     productId,
     productName: data.productName,
     productBarcode: data.barcode ?? null,
@@ -207,13 +252,22 @@ export async function removeCartItem(
 
   if (!user) return { error: "Not authenticated" };
 
-  const { error } = await supabase
-    .from("shopping_cart_items")
-    .delete()
-    .eq("id", itemId)
-    .eq("cart_id", cartId);
+  // Use security definer RPC to bypass RLS for shared users
+  const { error: rpcErr } = await supabase.rpc("delete_cart_item", {
+    p_item_id: itemId,
+    p_cart_id: cartId,
+  });
 
-  if (error) return { error: `Failed to remove cart item: ${error.message}` };
+  if (rpcErr) {
+    // Fallback to direct delete
+    const { error } = await supabase
+      .from("shopping_cart_items")
+      .delete()
+      .eq("id", itemId)
+      .eq("cart_id", cartId);
+
+    if (error) return { error: `Failed to remove cart item: ${error.message}` };
+  }
 
   await recalculateCartTotal(cartId);
   return {};
@@ -231,14 +285,24 @@ export async function updateCartItemQuantity(
 
   if (!user) return { error: "Not authenticated" };
 
-  const { error } = await supabase
-    .from("shopping_cart_items")
-    .update({ quantity })
-    .eq("id", itemId)
-    .eq("cart_id", cartId);
+  // Use security definer RPC to bypass RLS for shared users
+  const { error: rpcErr } = await supabase.rpc("update_cart_item", {
+    p_item_id: itemId,
+    p_cart_id: cartId,
+    p_updates: { quantity },
+  });
 
-  if (error)
-    return { error: `Failed to update cart item: ${error.message}` };
+  if (rpcErr) {
+    // Fallback to direct update
+    const { error } = await supabase
+      .from("shopping_cart_items")
+      .update({ quantity })
+      .eq("id", itemId)
+      .eq("cart_id", cartId);
+
+    if (error)
+      return { error: `Failed to update cart item: ${error.message}` };
+  }
 
   await recalculateCartTotal(cartId);
   return {};

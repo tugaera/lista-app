@@ -523,6 +523,30 @@ export interface Database {
         Args: { p_cart_id: string };
         Returns: void;
       };
+      insert_cart_item: {
+        Args: {
+          p_cart_id: string;
+          p_product_id: string | null;
+          p_product_name: string;
+          p_product_barcode: string | null;
+          p_price: number;
+          p_original_price: number | null;
+          p_quantity: number;
+        };
+        Returns: string;
+      };
+      update_cart_item: {
+        Args: {
+          p_item_id: string;
+          p_cart_id: string;
+          p_updates: Record<string, unknown>;
+        };
+        Returns: void;
+      };
+      delete_cart_item: {
+        Args: { p_item_id: string; p_cart_id: string };
+        Returns: void;
+      };
     };
     Enums: {
       user_role: "admin" | "moderator" | "user";

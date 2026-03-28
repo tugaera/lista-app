@@ -409,6 +409,65 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
 
+-- Insert cart item (bypasses RLS so shared users can add items)
+CREATE OR REPLACE FUNCTION public.insert_cart_item(
+  p_cart_id uuid, p_product_id uuid, p_product_name text,
+  p_product_barcode text, p_price numeric, p_original_price numeric, p_quantity integer
+) RETURNS uuid AS $$
+DECLARE
+  v_user_id uuid := auth.uid();
+  v_has_access boolean;
+  v_item_id uuid;
+BEGIN
+  SELECT EXISTS(SELECT 1 FROM shopping_carts sc WHERE sc.id = p_cart_id
+    AND (sc.user_id = v_user_id OR EXISTS (SELECT 1 FROM cart_shares cs WHERE cs.cart_id = sc.id AND cs.shared_with_user_id = v_user_id))
+  ) INTO v_has_access;
+  IF NOT v_has_access THEN RAISE EXCEPTION 'Access denied'; END IF;
+  INSERT INTO shopping_cart_items (cart_id, product_id, product_name, product_barcode, price, original_price, quantity)
+  VALUES (p_cart_id, p_product_id, p_product_name, p_product_barcode, p_price, p_original_price, p_quantity)
+  RETURNING id INTO v_item_id;
+  RETURN v_item_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Update cart item (bypasses RLS so shared users can edit items)
+CREATE OR REPLACE FUNCTION public.update_cart_item(
+  p_item_id uuid, p_cart_id uuid, p_updates jsonb
+) RETURNS void AS $$
+DECLARE
+  v_user_id uuid := auth.uid();
+  v_has_access boolean;
+BEGIN
+  SELECT EXISTS(SELECT 1 FROM shopping_carts sc WHERE sc.id = p_cart_id
+    AND (sc.user_id = v_user_id OR EXISTS (SELECT 1 FROM cart_shares cs WHERE cs.cart_id = sc.id AND cs.shared_with_user_id = v_user_id))
+  ) INTO v_has_access;
+  IF NOT v_has_access THEN RAISE EXCEPTION 'Access denied'; END IF;
+  UPDATE shopping_cart_items SET
+    quantity = COALESCE((p_updates->>'quantity')::integer, quantity),
+    price = COALESCE((p_updates->>'price')::numeric, price),
+    original_price = CASE WHEN p_updates ? 'original_price' THEN (p_updates->>'original_price')::numeric ELSE original_price END,
+    product_name = COALESCE(p_updates->>'product_name', product_name),
+    product_barcode = CASE WHEN p_updates ? 'product_barcode' THEN p_updates->>'product_barcode' ELSE product_barcode END,
+    product_id = CASE WHEN p_updates ? 'product_id' THEN (p_updates->>'product_id')::uuid ELSE product_id END
+  WHERE id = p_item_id AND cart_id = p_cart_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Delete cart item (bypasses RLS so shared users can remove items)
+CREATE OR REPLACE FUNCTION public.delete_cart_item(p_item_id uuid, p_cart_id uuid)
+RETURNS void AS $$
+DECLARE
+  v_user_id uuid := auth.uid();
+  v_has_access boolean;
+BEGIN
+  SELECT EXISTS(SELECT 1 FROM shopping_carts sc WHERE sc.id = p_cart_id
+    AND (sc.user_id = v_user_id OR EXISTS (SELECT 1 FROM cart_shares cs WHERE cs.cart_id = sc.id AND cs.shared_with_user_id = v_user_id))
+  ) INTO v_has_access;
+  IF NOT v_has_access THEN RAISE EXCEPTION 'Access denied'; END IF;
+  DELETE FROM shopping_cart_items WHERE id = p_item_id AND cart_id = p_cart_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
 -- Recalculate cart total (bypasses RLS so shared users can trigger it)
 CREATE OR REPLACE FUNCTION public.recalculate_cart_total(p_cart_id uuid)
 RETURNS void AS $$
