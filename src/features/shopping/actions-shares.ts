@@ -37,22 +37,20 @@ export async function shareCart(
 
   if (!cart) return { error: "Cart not found or not owned by you" };
 
-  // Look up user by email in profiles
+  // Look up user by email (uses security definer function to bypass RLS)
   const normalizedEmail = email.toLowerCase().trim();
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("id")
-    .eq("email", normalizedEmail)
-    .maybeSingle();
+  const { data: profileId } = await supabase.rpc("get_profile_id_by_email", {
+    lookup_email: normalizedEmail,
+  });
 
-  if (!profile) return { error: "No account found with that email. The user must register first." };
+  if (!profileId) return { error: "No account found with that email. The user must register first." };
 
   // Insert share
   const { error } = await supabase.from("cart_shares").insert({
     cart_id: cartId,
     owner_id: user.id,
     shared_with_email: normalizedEmail,
-    shared_with_user_id: profile.id,
+    shared_with_user_id: profileId,
   });
 
   if (error) {

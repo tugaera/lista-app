@@ -487,6 +487,18 @@ export interface Database {
         Args: { p_list_id: string };
         Returns: { success?: boolean; ownerEmail?: string; error?: string };
       };
+      get_profile_id_by_email: {
+        Args: { lookup_email: string };
+        Returns: string | null;
+      };
+      get_profile_email_by_id: {
+        Args: { user_id: string };
+        Returns: string | null;
+      };
+      get_my_role: {
+        Args: Record<string, never>;
+        Returns: string;
+      };
     };
     Enums: {
       user_role: "admin" | "moderator" | "user";

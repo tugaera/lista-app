@@ -207,7 +207,7 @@ create or replace function public.handle_new_user()
 returns trigger as $$
 begin
   insert into public.profiles (id, email, role)
-  values (NEW.id, NEW.raw_user_meta_data->>'email', 'user')
+  values (NEW.id, coalesce(NEW.email, NEW.raw_user_meta_data->>'email'), 'user')
   on conflict (id) do nothing;
   return NEW;
 end;
@@ -221,6 +221,18 @@ create trigger on_auth_user_created
 create or replace function public.get_my_role()
 returns public.user_role as $$
   select role from public.profiles where id = auth.uid()
+$$ language sql security definer stable;
+
+-- Look up a profile id by email (bypasses RLS so any authenticated user can share)
+create or replace function public.get_profile_id_by_email(lookup_email text)
+returns uuid as $$
+  select id from public.profiles where lower(email) = lower(lookup_email) limit 1;
+$$ language sql security definer stable;
+
+-- Look up a profile email by id (bypasses RLS for displaying owner info on shared items)
+create or replace function public.get_profile_email_by_id(user_id uuid)
+returns text as $$
+  select email from public.profiles where id = user_id limit 1;
 $$ language sql security definer stable;
 
 -- Validate invite code (callable by anon for signup)

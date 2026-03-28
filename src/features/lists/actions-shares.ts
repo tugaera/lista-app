@@ -38,24 +38,22 @@ export async function shareList(
 
   const normalizedEmail = email.toLowerCase().trim();
 
-  if (normalizedEmail === (await supabase.from("profiles").select("email").eq("id", user.id).single()).data?.email?.toLowerCase()) {
+  // Look up user by email (uses security definer function to bypass RLS)
+  const { data: profileId } = await supabase.rpc("get_profile_id_by_email", {
+    lookup_email: normalizedEmail,
+  });
+
+  if (!profileId) return { error: "No account found with that email. The user must register first." };
+
+  if (profileId === user.id) {
     return { error: "Cannot share with yourself" };
   }
-
-  // Look up user by email
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("id")
-    .eq("email", normalizedEmail)
-    .maybeSingle();
-
-  if (!profile) return { error: "No account found with that email. The user must register first." };
 
   const { error } = await supabase.from("list_shares").insert({
     list_id: listId,
     owner_id: user.id,
     shared_with_email: normalizedEmail,
-    shared_with_user_id: profile.id,
+    shared_with_user_id: profileId,
   });
 
   if (error) {

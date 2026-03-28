@@ -6,25 +6,39 @@ import { joinListByUrl } from "@/features/lists/actions-shares";
 
 interface JoinListConfirmProps {
   listId: string;
-  listName: string;
-  ownerEmail: string;
 }
 
-export function JoinListConfirm({ listId, listName, ownerEmail }: JoinListConfirmProps) {
+export function JoinListConfirm({ listId }: JoinListConfirmProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [joined, setJoined] = useState(false);
 
   function handleJoin() {
     setError(null);
     startTransition(async () => {
       const result = await joinListByUrl(listId);
       if (result.error) {
-        setError("Could not join this list. It may no longer be available.");
+        if (result.error === "own_list") {
+          router.push(`/lists/${listId}`);
+          return;
+        }
+        setError(result.error);
         return;
       }
+      setJoined(true);
       router.push(`/lists/${listId}`);
     });
+  }
+
+  if (joined) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50 px-4">
+        <div className="w-full max-w-sm rounded-2xl bg-white p-8 text-center shadow-sm">
+          <p className="text-gray-600">Joining list…</p>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -38,10 +52,9 @@ export function JoinListConfirm({ listId, listName, ownerEmail }: JoinListConfir
         </div>
 
         <h1 className="mb-1 text-center text-xl font-bold text-gray-900">Join shared list?</h1>
-        <p className="mb-1 text-center text-sm text-gray-600">
-          <span className="font-medium text-blue-700">{ownerEmail}</span> is sharing their list with you.
+        <p className="mb-4 text-center text-sm text-gray-600">
+          Someone is sharing a list with you.
         </p>
-        <p className="mb-4 text-center text-xs font-medium text-gray-500">&ldquo;{listName}&rdquo;</p>
 
         <div className="my-4 rounded-lg bg-blue-50 px-4 py-3 text-sm text-blue-800">
           You will be able to view this list and its items.
