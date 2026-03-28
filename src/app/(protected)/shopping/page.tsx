@@ -57,14 +57,12 @@ export default async function ShoppingRoute({
 
         ownerEmail = ownerEmailResult ?? share.owner_id;
 
-        // Get cart store
-        const { data: sharedCart } = await supabase
-          .from("shopping_carts")
-          .select("store_id")
-          .eq("id", cartId)
-          .maybeSingle();
+        // Get cart store (uses security definer to bypass RLS)
+        const { data: storeIdResult } = await supabase.rpc("get_cart_store_id", {
+          p_cart_id: cartId,
+        });
 
-        cartStoreId = sharedCart?.store_id ?? null;
+        cartStoreId = (storeIdResult as string | null) ?? null;
       } else {
         // No access — redirect to own cart
         redirect("/shopping");

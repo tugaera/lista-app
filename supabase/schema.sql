@@ -264,6 +264,81 @@ begin
 end;
 $$ language plpgsql security definer stable;
 
+-- Get a list by id (bypasses RLS — checks access via list_shares or ownership)
+create or replace function public.get_list_by_id(p_list_id uuid)
+returns jsonb as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_has_access boolean;
+begin
+  select exists(
+    select 1 from shopping_lists sl
+    where sl.id = p_list_id
+      and (sl.user_id = v_user_id
+        or exists (select 1 from list_shares ls where ls.list_id = sl.id and ls.shared_with_user_id = v_user_id))
+  ) into v_has_access;
+
+  if not v_has_access then
+    return null;
+  end if;
+
+  return (
+    select row_to_json(t)
+    from (
+      select id, user_id, name, created_at
+      from shopping_lists
+      where id = p_list_id
+    ) t
+  );
+end;
+$$ language plpgsql security definer stable;
+
+-- Get list items (bypasses RLS — checks access via list_shares or ownership)
+create or replace function public.get_list_items(p_list_id uuid)
+returns jsonb as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_has_access boolean;
+begin
+  select exists(
+    select 1 from shopping_lists sl
+    where sl.id = p_list_id
+      and (sl.user_id = v_user_id
+        or exists (select 1 from list_shares ls where ls.list_id = sl.id and ls.shared_with_user_id = v_user_id))
+  ) into v_has_access;
+
+  if not v_has_access then
+    return '[]'::jsonb;
+  end if;
+
+  return coalesce((
+    select jsonb_agg(row_to_json(t) order by t.created_at asc)
+    from (
+      select sli.id, sli.list_id, sli.product_id, sli.product_name, sli.planned_quantity, sli.created_at,
+             case when p.id is not null then jsonb_build_object('id', p.id, 'name', p.name, 'barcode', p.barcode) else null end as products
+      from shopping_list_items sli
+      left join products p on p.id = sli.product_id
+      where sli.list_id = p_list_id
+    ) t
+  ), '[]'::jsonb);
+end;
+$$ language plpgsql security definer stable;
+
+-- Get cart store_id (bypasses RLS for shared users)
+create or replace function public.get_cart_store_id(p_cart_id uuid)
+returns uuid as $$
+declare
+  v_user_id uuid := auth.uid();
+begin
+  return (
+    select sc.store_id from shopping_carts sc
+    where sc.id = p_cart_id
+      and (sc.user_id = v_user_id
+        or exists (select 1 from cart_shares cs where cs.cart_id = sc.id and cs.shared_with_user_id = v_user_id))
+  );
+end;
+$$ language plpgsql security definer stable;
+
 -- Get lists shared with current user (bypasses RLS)
 create or replace function public.get_shared_lists_for_user()
 returns jsonb as $$

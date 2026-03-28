@@ -507,6 +507,18 @@ export interface Database {
         Args: Record<string, never>;
         Returns: unknown;
       };
+      get_list_by_id: {
+        Args: { p_list_id: string };
+        Returns: unknown;
+      };
+      get_list_items: {
+        Args: { p_list_id: string };
+        Returns: unknown;
+      };
+      get_cart_store_id: {
+        Args: { p_cart_id: string };
+        Returns: string | null;
+      };
     };
     Enums: {
       user_role: "admin" | "moderator" | "user";

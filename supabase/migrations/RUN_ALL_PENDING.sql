@@ -285,6 +285,141 @@ GRANT EXECUTE ON FUNCTION public.join_list_by_url(uuid) TO authenticated;
 
 -- === Security definer functions for shared data access ===
 
+-- === Migration 018: Drop ALL existing policies and recreate ===
+
+DO $$ DECLARE
+  pol RECORD;
+BEGIN
+  FOR pol IN SELECT policyname FROM pg_policies WHERE tablename = 'shopping_carts' AND schemaname = 'public'
+  LOOP EXECUTE format('DROP POLICY IF EXISTS %I ON public.shopping_carts', pol.policyname); END LOOP;
+
+  FOR pol IN SELECT policyname FROM pg_policies WHERE tablename = 'shopping_cart_items' AND schemaname = 'public'
+  LOOP EXECUTE format('DROP POLICY IF EXISTS %I ON public.shopping_cart_items', pol.policyname); END LOOP;
+
+  FOR pol IN SELECT policyname FROM pg_policies WHERE tablename = 'shopping_lists' AND schemaname = 'public'
+  LOOP EXECUTE format('DROP POLICY IF EXISTS %I ON public.shopping_lists', pol.policyname); END LOOP;
+
+  FOR pol IN SELECT policyname FROM pg_policies WHERE tablename = 'shopping_list_items' AND schemaname = 'public'
+  LOOP EXECUTE format('DROP POLICY IF EXISTS %I ON public.shopping_list_items', pol.policyname); END LOOP;
+
+  FOR pol IN SELECT policyname FROM pg_policies WHERE tablename = 'cart_shares' AND schemaname = 'public'
+  LOOP EXECUTE format('DROP POLICY IF EXISTS %I ON public.cart_shares', pol.policyname); END LOOP;
+
+  FOR pol IN SELECT policyname FROM pg_policies WHERE tablename = 'list_shares' AND schemaname = 'public'
+  LOOP EXECUTE format('DROP POLICY IF EXISTS %I ON public.list_shares', pol.policyname); END LOOP;
+END $$;
+
+-- cart_shares
+CREATE POLICY "cart_shares_select" ON cart_shares FOR SELECT TO authenticated
+  USING (owner_id = auth.uid() OR shared_with_user_id = auth.uid());
+CREATE POLICY "cart_shares_insert" ON cart_shares FOR INSERT TO authenticated
+  WITH CHECK (owner_id = auth.uid() AND EXISTS (SELECT 1 FROM shopping_carts WHERE id = cart_id AND user_id = auth.uid()));
+CREATE POLICY "cart_shares_delete" ON cart_shares FOR DELETE TO authenticated
+  USING (owner_id = auth.uid());
+
+-- list_shares
+CREATE POLICY "list_shares_select_owner" ON list_shares FOR SELECT TO authenticated USING (owner_id = auth.uid());
+CREATE POLICY "list_shares_select_member" ON list_shares FOR SELECT TO authenticated USING (shared_with_user_id = auth.uid());
+CREATE POLICY "list_shares_insert" ON list_shares FOR INSERT TO authenticated
+  WITH CHECK (owner_id = auth.uid() AND EXISTS (SELECT 1 FROM shopping_lists WHERE id = list_id AND user_id = auth.uid()));
+CREATE POLICY "list_shares_delete" ON list_shares FOR DELETE TO authenticated USING (owner_id = auth.uid());
+
+-- shopping_carts
+CREATE POLICY "shopping_carts_select" ON shopping_carts FOR SELECT TO authenticated
+  USING (user_id = auth.uid() OR EXISTS (SELECT 1 FROM cart_shares WHERE cart_id = id AND shared_with_user_id = auth.uid()));
+CREATE POLICY "shopping_carts_insert" ON shopping_carts FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "shopping_carts_update" ON shopping_carts FOR UPDATE TO authenticated USING (auth.uid() = user_id);
+CREATE POLICY "shopping_carts_delete" ON shopping_carts FOR DELETE TO authenticated USING (auth.uid() = user_id);
+
+-- shopping_cart_items
+CREATE POLICY "shopping_cart_items_select" ON shopping_cart_items FOR SELECT TO authenticated
+  USING (EXISTS (SELECT 1 FROM shopping_carts sc WHERE sc.id = cart_id AND (sc.user_id = auth.uid() OR EXISTS (SELECT 1 FROM cart_shares cs WHERE cs.cart_id = sc.id AND cs.shared_with_user_id = auth.uid()))));
+CREATE POLICY "shopping_cart_items_insert" ON shopping_cart_items FOR INSERT TO authenticated
+  WITH CHECK (EXISTS (SELECT 1 FROM shopping_carts sc WHERE sc.id = cart_id AND (sc.user_id = auth.uid() OR EXISTS (SELECT 1 FROM cart_shares cs WHERE cs.cart_id = sc.id AND cs.shared_with_user_id = auth.uid()))));
+CREATE POLICY "shopping_cart_items_update" ON shopping_cart_items FOR UPDATE TO authenticated
+  USING (EXISTS (SELECT 1 FROM shopping_carts sc WHERE sc.id = cart_id AND (sc.user_id = auth.uid() OR EXISTS (SELECT 1 FROM cart_shares cs WHERE cs.cart_id = sc.id AND cs.shared_with_user_id = auth.uid()))));
+CREATE POLICY "shopping_cart_items_delete" ON shopping_cart_items FOR DELETE TO authenticated
+  USING (EXISTS (SELECT 1 FROM shopping_carts sc WHERE sc.id = cart_id AND (sc.user_id = auth.uid() OR EXISTS (SELECT 1 FROM cart_shares cs WHERE cs.cart_id = sc.id AND cs.shared_with_user_id = auth.uid()))));
+
+-- shopping_lists
+CREATE POLICY "shopping_lists_select" ON shopping_lists FOR SELECT TO authenticated
+  USING (user_id = auth.uid() OR EXISTS (SELECT 1 FROM list_shares WHERE list_id = id AND shared_with_user_id = auth.uid()));
+CREATE POLICY "shopping_lists_insert" ON shopping_lists FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "shopping_lists_update" ON shopping_lists FOR UPDATE TO authenticated USING (auth.uid() = user_id);
+CREATE POLICY "shopping_lists_delete" ON shopping_lists FOR DELETE TO authenticated USING (auth.uid() = user_id);
+
+-- shopping_list_items
+CREATE POLICY "shopping_list_items_select" ON shopping_list_items FOR SELECT TO authenticated
+  USING (EXISTS (SELECT 1 FROM shopping_lists sl WHERE sl.id = list_id AND (sl.user_id = auth.uid() OR EXISTS (SELECT 1 FROM list_shares ls WHERE ls.list_id = sl.id AND ls.shared_with_user_id = auth.uid()))));
+CREATE POLICY "shopping_list_items_insert" ON shopping_list_items FOR INSERT TO authenticated
+  WITH CHECK (EXISTS (SELECT 1 FROM shopping_lists WHERE id = list_id AND user_id = auth.uid()));
+CREATE POLICY "shopping_list_items_update" ON shopping_list_items FOR UPDATE TO authenticated
+  USING (EXISTS (SELECT 1 FROM shopping_lists WHERE id = list_id AND user_id = auth.uid()));
+CREATE POLICY "shopping_list_items_delete" ON shopping_list_items FOR DELETE TO authenticated
+  USING (EXISTS (SELECT 1 FROM shopping_lists WHERE id = list_id AND user_id = auth.uid()));
+
+-- === Security definer functions for shared data access ===
+
+-- Get a list by id (bypasses RLS)
+CREATE OR REPLACE FUNCTION public.get_list_by_id(p_list_id uuid)
+RETURNS jsonb AS $$
+DECLARE
+  v_user_id uuid := auth.uid();
+  v_has_access boolean;
+BEGIN
+  SELECT EXISTS(
+    SELECT 1 FROM shopping_lists sl
+    WHERE sl.id = p_list_id
+      AND (sl.user_id = v_user_id
+        OR EXISTS (SELECT 1 FROM list_shares ls WHERE ls.list_id = sl.id AND ls.shared_with_user_id = v_user_id))
+  ) INTO v_has_access;
+  IF NOT v_has_access THEN RETURN null; END IF;
+  RETURN (SELECT row_to_json(t) FROM (SELECT id, user_id, name, created_at FROM shopping_lists WHERE id = p_list_id) t);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
+
+-- Get list items (bypasses RLS)
+CREATE OR REPLACE FUNCTION public.get_list_items(p_list_id uuid)
+RETURNS jsonb AS $$
+DECLARE
+  v_user_id uuid := auth.uid();
+  v_has_access boolean;
+BEGIN
+  SELECT EXISTS(
+    SELECT 1 FROM shopping_lists sl
+    WHERE sl.id = p_list_id
+      AND (sl.user_id = v_user_id
+        OR EXISTS (SELECT 1 FROM list_shares ls WHERE ls.list_id = sl.id AND ls.shared_with_user_id = v_user_id))
+  ) INTO v_has_access;
+  IF NOT v_has_access THEN RETURN '[]'::jsonb; END IF;
+  RETURN COALESCE((
+    SELECT jsonb_agg(row_to_json(t) ORDER BY t.created_at ASC)
+    FROM (
+      SELECT sli.id, sli.list_id, sli.product_id, sli.product_name, sli.planned_quantity, sli.created_at,
+             CASE WHEN p.id IS NOT NULL THEN jsonb_build_object('id', p.id, 'name', p.name, 'barcode', p.barcode) ELSE null END AS products
+      FROM shopping_list_items sli
+      LEFT JOIN products p ON p.id = sli.product_id
+      WHERE sli.list_id = p_list_id
+    ) t
+  ), '[]'::jsonb);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
+
+-- Get cart store_id (bypasses RLS for shared users)
+CREATE OR REPLACE FUNCTION public.get_cart_store_id(p_cart_id uuid)
+RETURNS uuid AS $$
+DECLARE
+  v_user_id uuid := auth.uid();
+BEGIN
+  RETURN (
+    SELECT sc.store_id FROM shopping_carts sc
+    WHERE sc.id = p_cart_id
+      AND (sc.user_id = v_user_id
+        OR EXISTS (SELECT 1 FROM cart_shares cs WHERE cs.cart_id = sc.id AND cs.shared_with_user_id = v_user_id))
+  );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
+
 -- Get cart items (bypasses RLS — checks access via cart_shares or ownership)
 CREATE OR REPLACE FUNCTION public.get_cart_items(p_cart_id uuid)
 RETURNS jsonb AS $$
