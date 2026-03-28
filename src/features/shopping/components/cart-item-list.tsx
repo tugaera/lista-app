@@ -3,11 +3,13 @@
 import { useState, useTransition, useRef, useEffect } from "react";
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
 import {
-  removeCartItem,
-  updateCartItemQuantity,
-} from "@/features/shopping/actions";
+  removeCartItemOffline,
+  updateCartItemQuantityOffline,
+} from "@/lib/offline/cart-actions";
 import type { CartItemDisplay } from "@/features/shopping/actions";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { useMemo } from "react";
+import { createUserColorMap, getUserInitial } from "@/lib/user-colors";
 
 type PriceEntry = {
   store: string;
@@ -25,6 +27,16 @@ type CartItemListProps = {
 };
 
 export function CartItemList({ items, cartId, onItemRemoved, onItemUpdated, isShared = false }: CartItemListProps) {
+  // Create a color map that assigns unique colors per user email
+  const colorMap = useMemo(() => {
+    const map = createUserColorMap();
+    // Pre-assign colors in order of appearance
+    for (const item of items) {
+      if (item.addedByEmail) map.getColor(item.addedByEmail);
+    }
+    return map;
+  }, [items]);
+
   const total = items.reduce((sum, item) => sum + item.subtotal, 0);
   const totalSavings = items.reduce((sum, item) => {
     if (item.originalPrice && item.originalPrice > item.price) {
@@ -43,7 +55,7 @@ export function CartItemList({ items, cartId, onItemRemoved, onItemUpdated, isSh
     onItemRemoved(itemId);
     setDeleteConfirm(null);
     startDeleteTransition(async () => {
-      await removeCartItem(cartId, itemId);
+      await removeCartItemOffline(cartId, itemId);
     });
   }
 
@@ -68,6 +80,7 @@ export function CartItemList({ items, cartId, onItemRemoved, onItemUpdated, isSh
                 onDelete={() => setDeleteConfirm(item.id)}
                 onItemUpdated={onItemUpdated}
                 isShared={isShared}
+                userColor={item.addedByEmail ? colorMap.getColor(item.addedByEmail) : undefined}
               />
             ))}
           </ul>
@@ -242,12 +255,14 @@ function CartItemRow({
   onDelete,
   onItemUpdated,
   isShared = false,
+  userColor,
 }: {
   item: CartItemDisplay;
   cartId: string;
   onDelete: () => void;
   onItemUpdated: (itemId: string, newQuantity: number) => void;
   isShared?: boolean;
+  userColor?: { bg: string; text: string; border: string };
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editQuantity, setEditQuantity] = useState(String(item.quantity));
@@ -268,7 +283,7 @@ function CartItemRow({
     onItemUpdated(item.id, newQty);
     setIsEditing(false);
     startTransition(async () => {
-      await updateCartItemQuantity(cartId, item.id, newQty);
+      await updateCartItemQuantityOffline(cartId, item.id, newQty);
     });
   }
 
@@ -298,12 +313,12 @@ function CartItemRow({
       </div>
 
       <div className="flex items-center gap-1.5">
-        {/* Added-by user icon — only on shared carts */}
-        {isShared && item.addedByEmail && (
+        {/* Added-by user avatar — only on shared carts */}
+        {isShared && item.addedByEmail && userColor && (
           <div className="group relative shrink-0">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-            </svg>
+            <span className={`flex h-5 w-5 items-center justify-center rounded-full border text-[10px] font-bold ${userColor.bg} ${userColor.text} ${userColor.border}`}>
+              {getUserInitial(item.addedByEmail)}
+            </span>
             <span className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-md bg-gray-800 px-2 py-1 text-xs text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
               {item.addedByEmail}
             </span>

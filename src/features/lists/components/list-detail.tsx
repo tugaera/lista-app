@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,8 @@ import {
 import { ProductSearch, type ProductResult } from "@/features/shopping/components/product-search";
 import { BarcodeScanner } from "@/features/shopping/components/barcode-scanner";
 import type { ShoppingList, ShoppingListItem, Product } from "@/types/database";
+import { createBrowserSupabaseClient } from "@/lib/supabase/client";
+import { createUserColorMap, getUserInitial } from "@/lib/user-colors";
 
 interface ListItemWithProduct extends ShoppingListItem {
   products: Pick<Product, "id" | "name" | "barcode"> | null;
@@ -31,9 +33,11 @@ interface ListDetailProps {
   items: ListItemWithProduct[];
   isOwner?: boolean;
   initialShares?: ListShareInfo[];
+  currentUserId?: string;
+  currentUserEmail?: string;
 }
 
-export function ListDetail({ list, items: initialItems, isOwner = true, initialShares = [] }: ListDetailProps) {
+export function ListDetail({ list, items: initialItems, isOwner = true, initialShares = [], currentUserId = "", currentUserEmail = "" }: ListDetailProps) {
   const router = useRouter();
   const [items, setItems] = useState(initialItems);
   const [isPending, startTransition] = useTransition();
@@ -50,6 +54,15 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
 
   const isShared = !isOwner || initialShares.length > 0;
 
+  // Assign unique colors to each user for the avatar icons
+  const colorMap = useMemo(() => {
+    const map = createUserColorMap();
+    for (const item of items) {
+      if (item.added_by_email) map.getColor(item.added_by_email);
+    }
+    return map;
+  }, [items]);
+
   // Share panel
   const [showSharePanel, setShowSharePanel] = useState(false);
   const [shareEmail, setShareEmail] = useState("");
@@ -57,6 +70,122 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
   const [shareError, setShareError] = useState<string | null>(null);
   const [shareLoading, startShareTransition] = useTransition();
   const [urlCopied, setUrlCopied] = useState(false);
+
+  // Build userId → email map for realtime events
+  const emailMapRef = useRef<Map<string, string>>(new Map());
+  useEffect(() => {
+    const map = new Map<string, string>();
+    for (const item of items) {
+      if ((item as unknown as { added_by?: string }).added_by && item.added_by_email) {
+        map.set((item as unknown as { added_by: string }).added_by, item.added_by_email);
+      }
+    }
+    if (currentUserId && currentUserEmail) {
+      map.set(currentUserId, currentUserEmail);
+    }
+    emailMapRef.current = map;
+  }, [items, currentUserId, currentUserEmail]);
+
+  // Realtime subscription for list items
+  useEffect(() => {
+    const supabase = createBrowserSupabaseClient();
+
+    const channel = supabase
+      .channel(`list-items-${list.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "shopping_list_items",
+          filter: `list_id=eq.${list.id}`,
+        },
+        (payload) => {
+          const row = payload.new as {
+            id: string;
+            list_id: string;
+            product_id: string | null;
+            product_name: string | null;
+            planned_quantity: number;
+            created_at: string;
+            added_by: string | null;
+          };
+          const addedByEmail = row.added_by
+            ? emailMapRef.current.get(row.added_by) ?? undefined
+            : undefined;
+          setItems((prev) => {
+            if (prev.find((i) => i.id === row.id)) return prev;
+            return [
+              ...prev,
+              {
+                id: row.id,
+                list_id: row.list_id,
+                product_id: row.product_id,
+                product_name: row.product_name,
+                planned_quantity: row.planned_quantity,
+                created_at: row.created_at,
+                added_by: row.added_by,
+                products: row.product_name
+                  ? { id: row.product_id ?? "", name: row.product_name, barcode: null }
+                  : null,
+                added_by_email: addedByEmail ?? null,
+              } as ListItemWithProduct,
+            ];
+          });
+          // If email unknown, resolve via RPC and update item
+          if (row.added_by && !addedByEmail) {
+            supabase.rpc("get_profile_email_by_id", { user_id: row.added_by }).then(({ data }) => {
+              if (data) {
+                emailMapRef.current.set(row.added_by!, data);
+                setItems((prev) =>
+                  prev.map((i) => i.id === row.id ? { ...i, added_by_email: data } : i),
+                );
+              }
+            });
+          }
+        },
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "shopping_list_items",
+          filter: `list_id=eq.${list.id}`,
+        },
+        (payload) => {
+          const row = payload.new as {
+            id: string;
+            planned_quantity: number;
+          };
+          setItems((prev) =>
+            prev.map((item) =>
+              item.id === row.id
+                ? { ...item, planned_quantity: row.planned_quantity }
+                : item,
+            ),
+          );
+        },
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "DELETE",
+          schema: "public",
+          table: "shopping_list_items",
+          filter: `list_id=eq.${list.id}`,
+        },
+        (payload) => {
+          const row = payload.old as { id: string };
+          setItems((prev) => prev.filter((item) => item.id !== row.id));
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [list.id]);
 
   // ── Barcode scan ────────────────────────────────────────────────────────
   async function handleBarcodeScan(barcode: string) {
@@ -66,7 +195,6 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
     scannedNameRef.current = null;
 
     try {
-      const { createBrowserSupabaseClient } = await import("@/lib/supabase/client");
       const supabase = createBrowserSupabaseClient();
 
       const { data: product } = await supabase
@@ -428,16 +556,19 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
                   )}
                 </div>
                 <div className="flex items-center gap-2">
-                  {isShared && item.added_by_email && (
-                    <div className="group relative shrink-0">
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                      </svg>
-                      <span className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-md bg-gray-800 px-2 py-1 text-xs text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
-                        {item.added_by_email}
-                      </span>
-                    </div>
-                  )}
+                  {isShared && item.added_by_email && (() => {
+                    const color = colorMap.getColor(item.added_by_email);
+                    return (
+                      <div className="group relative shrink-0">
+                        <span className={`flex h-5 w-5 items-center justify-center rounded-full border text-[10px] font-bold ${color.bg} ${color.text} ${color.border}`}>
+                          {getUserInitial(item.added_by_email)}
+                        </span>
+                        <span className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-md bg-gray-800 px-2 py-1 text-xs text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
+                          {item.added_by_email}
+                        </span>
+                      </div>
+                    );
+                  })()}
                   <Button variant="danger" size="sm" onClick={() => setDeleteConfirm(item.id)}>
                     Remove
                   </Button>

@@ -136,6 +136,8 @@ export default async function ShoppingRoute({
       isSharedCart={isSharedCart}
       ownerEmail={ownerEmail}
       initialShares={initialShares}
+      currentUserId={user.id}
+      currentUserEmail={user.email ?? ""}
     />
   );
 }

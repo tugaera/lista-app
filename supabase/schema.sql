@@ -965,6 +965,13 @@ insert into stores (name) values
 --    a) Temporarily comment out invite validation in the app, OR
 --    b) Insert a profile + invite manually:
 --
+-- ============================================================
+-- REALTIME
+-- ============================================================
+-- Enable realtime for tables that need live sync
+alter publication supabase_realtime add table shopping_cart_items;
+alter publication supabase_realtime add table shopping_list_items;
+
 -- INSERT INTO profiles (id, email, role)
 -- VALUES ('<your-auth-user-id>', 'your@email.com', 'admin');
 --
