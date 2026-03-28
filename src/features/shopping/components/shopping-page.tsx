@@ -26,6 +26,7 @@ type ShoppingPageProps = {
   sharedWithMeCarts?: SharedWithMeCart[];
   isSharedCart?: boolean;
   ownerEmail?: string;
+  initialShares?: CartShareInfo[];
 };
 
 export function ShoppingPage({
@@ -38,6 +39,7 @@ export function ShoppingPage({
   sharedWithMeCarts = [],
   isSharedCart = false,
   ownerEmail,
+  initialShares = [],
 }: ShoppingPageProps) {
   const router = useRouter();
   const [items, setItems] = useState<CartItemDisplay[]>(initialItems);
@@ -58,7 +60,7 @@ export function ShoppingPage({
   // Share panel
   const [showSharePanel, setShowSharePanel] = useState(false);
   const [shareEmail, setShareEmail] = useState("");
-  const [shares, setShares] = useState<CartShareInfo[]>([]);
+  const [shares, setShares] = useState<CartShareInfo[]>(initialShares);
   const [shareError, setShareError] = useState<string | null>(null);
   const [shareLoading, startShareTransition] = useTransition();
   const [urlCopied, setUrlCopied] = useState(false);
