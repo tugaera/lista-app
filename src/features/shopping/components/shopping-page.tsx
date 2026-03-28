@@ -395,19 +395,21 @@ export function ShoppingPage({
             )}
           </button>
 
-          {/* Total + checkout */}
+          {/* Total + checkout (owner only) */}
           {items.length > 0 && (
             <>
               <span className="shrink-0 text-sm font-semibold text-gray-700">
                 &euro;{total.toFixed(2)}
               </span>
-              <button
-                onClick={() => setShowCheckout(true)}
-                disabled={isCheckingOut}
-                className="shrink-0 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
-              >
-                {isCheckingOut ? "…" : "Checkout"}
-              </button>
+              {!isSharedCart && (
+                <button
+                  onClick={() => setShowCheckout(true)}
+                  disabled={isCheckingOut}
+                  className="shrink-0 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  {isCheckingOut ? "…" : "Checkout"}
+                </button>
+              )}
             </>
           )}
 

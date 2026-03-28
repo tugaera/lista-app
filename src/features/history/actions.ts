@@ -140,12 +140,33 @@ export async function getCartDetail(cartId: string) {
     redirect("/auth/login");
   }
 
-  const { data: cart, error: cartError } = await supabase
+  // Try own cart first
+  let { data: cart, error: cartError } = await supabase
     .from("shopping_carts")
     .select("id, user_id, total, receipt_image_url, created_at")
     .eq("id", cartId)
     .eq("user_id", user.id)
     .single();
+
+  // If not own cart, check if shared with this user
+  if (!cart) {
+    const { data: share } = await supabase
+      .from("cart_shares")
+      .select("cart_id")
+      .eq("cart_id", cartId)
+      .eq("shared_with_user_id", user.id)
+      .maybeSingle();
+
+    if (share) {
+      const result = await supabase
+        .from("shopping_carts")
+        .select("id, user_id, total, receipt_image_url, created_at")
+        .eq("id", cartId)
+        .single();
+      cart = result.data;
+      cartError = result.error;
+    }
+  }
 
   if (cartError || !cart) {
     return {
