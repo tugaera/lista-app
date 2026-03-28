@@ -115,6 +115,24 @@ export async function getSharedWithMeLists(): Promise<SharedWithMeList[]> {
 
   if (!user) return [];
 
+  // Use security definer RPC to bypass RLS
+  const { data: rpcData, error: rpcError } = await supabase.rpc("get_shared_lists_for_user");
+
+  if (!rpcError && rpcData) {
+    const items = rpcData as unknown as Array<{
+      list_id: string;
+      list_name: string;
+      owner_id: string;
+      owner_email: string | null;
+    }>;
+    return items.map((item) => ({
+      listId: item.list_id,
+      listName: item.list_name,
+      ownerEmail: item.owner_email ?? "",
+    }));
+  }
+
+  // Fallback to direct queries (for when RPC doesn't exist yet)
   const { data: shares, error } = await supabase
     .from("list_shares")
     .select("list_id, owner_id")
@@ -130,7 +148,6 @@ export async function getSharedWithMeLists(): Promise<SharedWithMeList[]> {
   const listMap: Record<string, string> = {};
   for (const l of listsResult.data ?? []) listMap[l.id] = l.name;
 
-  // Get owner emails (uses security definer to bypass RLS)
   const ownerEmailMap: Record<string, string> = {};
   await Promise.all(
     ownerIds.map(async (ownerId) => {

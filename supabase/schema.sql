@@ -235,6 +235,54 @@ returns text as $$
   select email from public.profiles where id = user_id limit 1;
 $$ language sql security definer stable;
 
+-- Get cart items (bypasses RLS — checks access via cart_shares or ownership)
+create or replace function public.get_cart_items(p_cart_id uuid)
+returns jsonb as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_has_access boolean;
+begin
+  select exists(
+    select 1 from shopping_carts sc
+    where sc.id = p_cart_id
+      and (sc.user_id = v_user_id
+        or exists (select 1 from cart_shares cs where cs.cart_id = sc.id and cs.shared_with_user_id = v_user_id))
+  ) into v_has_access;
+
+  if not v_has_access then
+    return '[]'::jsonb;
+  end if;
+
+  return coalesce((
+    select jsonb_agg(row_to_json(t) order by t.created_at asc)
+    from (
+      select id, product_id, product_name, product_barcode, price, original_price, quantity, created_at
+      from shopping_cart_items
+      where cart_id = p_cart_id
+    ) t
+  ), '[]'::jsonb);
+end;
+$$ language plpgsql security definer stable;
+
+-- Get lists shared with current user (bypasses RLS)
+create or replace function public.get_shared_lists_for_user()
+returns jsonb as $$
+declare
+  v_user_id uuid := auth.uid();
+begin
+  return coalesce((
+    select jsonb_agg(row_to_json(t))
+    from (
+      select ls.list_id, sl.name as list_name, ls.owner_id,
+             (select email from profiles where id = ls.owner_id) as owner_email
+      from list_shares ls
+      join shopping_lists sl on sl.id = ls.list_id
+      where ls.shared_with_user_id = v_user_id
+    ) t
+  ), '[]'::jsonb);
+end;
+$$ language plpgsql security definer stable;
+
 -- Validate invite code (callable by anon for signup)
 create or replace function public.validate_invite_code(invite_code text)
 returns boolean as $$

@@ -499,6 +499,14 @@ export interface Database {
         Args: Record<string, never>;
         Returns: string;
       };
+      get_cart_items: {
+        Args: { p_cart_id: string };
+        Returns: unknown;
+      };
+      get_shared_lists_for_user: {
+        Args: Record<string, never>;
+        Returns: unknown;
+      };
     };
     Enums: {
       user_role: "admin" | "moderator" | "user";

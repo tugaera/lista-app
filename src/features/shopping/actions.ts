@@ -379,31 +379,39 @@ export async function getCartItems(
 ): Promise<CartItemDisplay[]> {
   const supabase = await createServerSupabaseClient();
 
-  const { data, error } = await supabase
-    .from("shopping_cart_items")
-    .select("id, product_id, product_name, product_barcode, price, original_price, quantity")
-    .eq("cart_id", cartId)
-    .order("created_at", { ascending: true });
+  // Use security definer RPC to bypass RLS (works for both owner and shared users)
+  const { data: rpcData, error: rpcError } = await supabase.rpc("get_cart_items", {
+    p_cart_id: cartId,
+  });
 
-  // Fallback if migration 009 hasn't run yet (original_price column missing)
-  if (error?.message?.includes("original_price")) {
-    const { data: fallback, error: fallbackError } = await supabase
-      .from("shopping_cart_items")
-      .select("id, product_id, product_name, product_barcode, price, quantity")
-      .eq("cart_id", cartId)
-      .order("created_at", { ascending: true });
-    if (fallbackError) throw new Error(`Failed to fetch cart items: ${fallbackError.message}`);
-    return (fallback ?? []).map((item) => ({
+  if (!rpcError && rpcData) {
+    const items = rpcData as unknown as Array<{
+      id: string;
+      product_id: string | null;
+      product_name: string;
+      product_barcode: string | null;
+      price: number;
+      original_price: number | null;
+      quantity: number;
+    }>;
+    return items.map((item) => ({
       id: item.id,
       productId: item.product_id,
       productName: item.product_name,
       productBarcode: item.product_barcode,
       price: item.price,
-      originalPrice: null,
+      originalPrice: item.original_price ?? null,
       quantity: item.quantity,
       subtotal: item.price * item.quantity,
     }));
   }
+
+  // Fallback to direct query (for when RPC doesn't exist yet)
+  const { data, error } = await supabase
+    .from("shopping_cart_items")
+    .select("id, product_id, product_name, product_barcode, price, original_price, quantity")
+    .eq("cart_id", cartId)
+    .order("created_at", { ascending: true });
 
   if (error) throw new Error(`Failed to fetch cart items: ${error.message}`);
 

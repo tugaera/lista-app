@@ -283,6 +283,56 @@ $$;
 
 GRANT EXECUTE ON FUNCTION public.join_list_by_url(uuid) TO authenticated;
 
+-- === Security definer functions for shared data access ===
+
+-- Get cart items (bypasses RLS — checks access via cart_shares or ownership)
+CREATE OR REPLACE FUNCTION public.get_cart_items(p_cart_id uuid)
+RETURNS jsonb AS $$
+DECLARE
+  v_user_id uuid := auth.uid();
+  v_has_access boolean;
+BEGIN
+  SELECT EXISTS(
+    SELECT 1 FROM shopping_carts sc
+    WHERE sc.id = p_cart_id
+      AND (sc.user_id = v_user_id
+        OR EXISTS (SELECT 1 FROM cart_shares cs WHERE cs.cart_id = sc.id AND cs.shared_with_user_id = v_user_id))
+  ) INTO v_has_access;
+
+  IF NOT v_has_access THEN
+    RETURN '[]'::jsonb;
+  END IF;
+
+  RETURN COALESCE((
+    SELECT jsonb_agg(row_to_json(t) ORDER BY t.created_at ASC)
+    FROM (
+      SELECT id, product_id, product_name, product_barcode, price, original_price, quantity, created_at
+      FROM shopping_cart_items
+      WHERE cart_id = p_cart_id
+    ) t
+  ), '[]'::jsonb);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
+
+-- Get lists shared with current user (bypasses RLS)
+CREATE OR REPLACE FUNCTION public.get_shared_lists_for_user()
+RETURNS jsonb AS $$
+DECLARE
+  v_user_id uuid := auth.uid();
+BEGIN
+  RETURN COALESCE((
+    SELECT jsonb_agg(row_to_json(t))
+    FROM (
+      SELECT ls.list_id, sl.name AS list_name, ls.owner_id,
+             (SELECT email FROM profiles WHERE id = ls.owner_id) AS owner_email
+      FROM list_shares ls
+      JOIN shopping_lists sl ON sl.id = ls.list_id
+      WHERE ls.shared_with_user_id = v_user_id
+    ) t
+  ), '[]'::jsonb);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
+
 -- ============================================================
 -- DONE! All migrations applied.
 -- ============================================================
