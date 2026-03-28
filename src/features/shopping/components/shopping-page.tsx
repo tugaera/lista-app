@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { CartItemDisplay } from "@/features/shopping/actions";
 import { finalizeCart, updateCartStore } from "@/features/shopping/actions";
@@ -27,6 +27,8 @@ type ShoppingPageProps = {
   isSharedCart?: boolean;
   ownerEmail?: string;
   initialShares?: CartShareInfo[];
+  currentUserId?: string;
+  currentUserEmail?: string;
 };
 
 export function ShoppingPage({
@@ -40,6 +42,8 @@ export function ShoppingPage({
   isSharedCart = false,
   ownerEmail,
   initialShares = [],
+  currentUserId = "",
+  currentUserEmail = "",
 }: ShoppingPageProps) {
   const router = useRouter();
   const [items, setItems] = useState<CartItemDisplay[]>(initialItems);
@@ -65,6 +69,21 @@ export function ShoppingPage({
   const [shareLoading, startShareTransition] = useTransition();
   const [urlCopied, setUrlCopied] = useState(false);
 
+  // Build a userId → email map from initial items + current user for realtime events
+  const emailMapRef = useRef<Map<string, string>>(new Map());
+  useEffect(() => {
+    const map = new Map<string, string>();
+    for (const item of items) {
+      if ((item as unknown as { added_by?: string }).added_by && item.addedByEmail) {
+        map.set((item as unknown as { added_by: string }).added_by, item.addedByEmail);
+      }
+    }
+    if (currentUserId && currentUserEmail) {
+      map.set(currentUserId, currentUserEmail);
+    }
+    emailMapRef.current = map;
+  }, [items, currentUserId, currentUserEmail]);
+
   // Realtime subscription for cart items
   useEffect(() => {
     const supabase = createBrowserSupabaseClient();
@@ -88,7 +107,11 @@ export function ShoppingPage({
             price: number;
             original_price: number | null;
             quantity: number;
+            added_by: string | null;
           };
+          const addedByEmail = row.added_by
+            ? emailMapRef.current.get(row.added_by) ?? (row.added_by === currentUserId ? currentUserEmail : undefined)
+            : undefined;
           const newItem: CartItemDisplay = {
             id: row.id,
             productId: row.product_id,
@@ -98,7 +121,7 @@ export function ShoppingPage({
             originalPrice: row.original_price ?? null,
             quantity: row.quantity,
             subtotal: row.price * row.quantity,
-            // addedByEmail not available via realtime — will show on next page load
+            addedByEmail: addedByEmail || undefined,
           };
           setItems((prev) => {
             if (prev.find((i) => i.id === newItem.id)) return prev;

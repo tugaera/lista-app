@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,7 @@ import {
 import { ProductSearch, type ProductResult } from "@/features/shopping/components/product-search";
 import { BarcodeScanner } from "@/features/shopping/components/barcode-scanner";
 import type { ShoppingList, ShoppingListItem, Product } from "@/types/database";
+import { createBrowserSupabaseClient } from "@/lib/supabase/client";
 
 interface ListItemWithProduct extends ShoppingListItem {
   products: Pick<Product, "id" | "name" | "barcode"> | null;
@@ -31,9 +32,11 @@ interface ListDetailProps {
   items: ListItemWithProduct[];
   isOwner?: boolean;
   initialShares?: ListShareInfo[];
+  currentUserId?: string;
+  currentUserEmail?: string;
 }
 
-export function ListDetail({ list, items: initialItems, isOwner = true, initialShares = [] }: ListDetailProps) {
+export function ListDetail({ list, items: initialItems, isOwner = true, initialShares = [], currentUserId = "", currentUserEmail = "" }: ListDetailProps) {
   const router = useRouter();
   const [items, setItems] = useState(initialItems);
   const [isPending, startTransition] = useTransition();
@@ -58,6 +61,111 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
   const [shareLoading, startShareTransition] = useTransition();
   const [urlCopied, setUrlCopied] = useState(false);
 
+  // Build userId → email map for realtime events
+  const emailMapRef = useRef<Map<string, string>>(new Map());
+  useEffect(() => {
+    const map = new Map<string, string>();
+    for (const item of items) {
+      if ((item as unknown as { added_by?: string }).added_by && item.added_by_email) {
+        map.set((item as unknown as { added_by: string }).added_by, item.added_by_email);
+      }
+    }
+    if (currentUserId && currentUserEmail) {
+      map.set(currentUserId, currentUserEmail);
+    }
+    emailMapRef.current = map;
+  }, [items, currentUserId, currentUserEmail]);
+
+  // Realtime subscription for list items
+  useEffect(() => {
+    const supabase = createBrowserSupabaseClient();
+
+    const channel = supabase
+      .channel(`list-items-${list.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "shopping_list_items",
+          filter: `list_id=eq.${list.id}`,
+        },
+        (payload) => {
+          const row = payload.new as {
+            id: string;
+            list_id: string;
+            product_id: string | null;
+            product_name: string | null;
+            planned_quantity: number;
+            created_at: string;
+            added_by: string | null;
+          };
+          const addedByEmail = row.added_by
+            ? emailMapRef.current.get(row.added_by) ?? undefined
+            : undefined;
+          setItems((prev) => {
+            if (prev.find((i) => i.id === row.id)) return prev;
+            return [
+              ...prev,
+              {
+                id: row.id,
+                list_id: row.list_id,
+                product_id: row.product_id,
+                product_name: row.product_name,
+                planned_quantity: row.planned_quantity,
+                created_at: row.created_at,
+                added_by: row.added_by,
+                products: row.product_name
+                  ? { id: row.product_id ?? "", name: row.product_name, barcode: null }
+                  : null,
+                added_by_email: addedByEmail ?? null,
+              } as ListItemWithProduct,
+            ];
+          });
+        },
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "shopping_list_items",
+          filter: `list_id=eq.${list.id}`,
+        },
+        (payload) => {
+          const row = payload.new as {
+            id: string;
+            planned_quantity: number;
+          };
+          setItems((prev) =>
+            prev.map((item) =>
+              item.id === row.id
+                ? { ...item, planned_quantity: row.planned_quantity }
+                : item,
+            ),
+          );
+        },
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "DELETE",
+          schema: "public",
+          table: "shopping_list_items",
+          filter: `list_id=eq.${list.id}`,
+        },
+        (payload) => {
+          const row = payload.old as { id: string };
+          setItems((prev) => prev.filter((item) => item.id !== row.id));
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [list.id]);
+
   // ── Barcode scan ────────────────────────────────────────────────────────
   async function handleBarcodeScan(barcode: string) {
     setShowScanner(false);
@@ -66,7 +174,6 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
     scannedNameRef.current = null;
 
     try {
-      const { createBrowserSupabaseClient } = await import("@/lib/supabase/client");
       const supabase = createBrowserSupabaseClient();
 
       const { data: product } = await supabase

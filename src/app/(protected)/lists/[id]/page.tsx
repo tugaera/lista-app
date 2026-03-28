@@ -47,6 +47,8 @@ export default async function ListDetailRoute({
       items={items as never[]}
       isOwner={isOwner}
       initialShares={shares}
+      currentUserId={user.id}
+      currentUserEmail={user.email ?? ""}
     />
   );
 }
