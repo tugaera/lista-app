@@ -152,29 +152,44 @@ export async function getSharedWithMeCarts(): Promise<SharedWithMeCart[]> {
 
   if (!user) return [];
 
-  // Get cart_shares where shared_with_user_id = current user
-  const { data: shares, error } = await supabase
-    .from("cart_shares")
-    .select(
-      "cart_id, owner_id",
-    )
-    .eq("shared_with_user_id", user.id);
+  // Use security definer RPC — direct query on shopping_carts is blocked by RLS for shared users
+  const { data: rpcResult, error: rpcError } = await supabase.rpc("get_shared_carts_for_user");
 
-  if (error || !shares || shares.length === 0) return [];
+  if (rpcError || !rpcResult) {
+    // Fallback: direct query (works only when RLS allows it, e.g. if function not deployed yet)
+    const { data: shares, error } = await supabase
+      .from("cart_shares")
+      .select("cart_id, owner_id")
+      .eq("shared_with_user_id", user.id);
+    if (error || !shares || shares.length === 0) return [];
 
-  const cartIds = shares.map((s) => s.cart_id);
-  const ownerIds = [...new Set(shares.map((s) => s.owner_id))];
+    const ownerIds = [...new Set(shares.map((s) => s.owner_id))];
+    const ownerEmailMap: Record<string, string> = {};
+    await Promise.all(
+      ownerIds.map(async (ownerId) => {
+        const { data: email } = await supabase.rpc("get_profile_email_by_id", { user_id: ownerId });
+        if (email) ownerEmailMap[ownerId] = email;
+      }),
+    );
+    return shares.map((s) => ({
+      cartId: s.cart_id,
+      ownerEmail: ownerEmailMap[s.owner_id] ?? "",
+      total: 0,
+      storeName: null,
+    }));
+  }
 
-  // Get carts (only non-finalized)
-  const { data: carts } = await supabase
-    .from("shopping_carts")
-    .select("id, total, finalized_at, store_id, stores(name)")
-    .in("id", cartIds)
-    .is("finalized_at", null);
+  const carts = (typeof rpcResult === "string" ? JSON.parse(rpcResult) : rpcResult) as Array<{
+    cart_id: string;
+    owner_id: string;
+    total: number;
+    store_name: string | null;
+  }>;
 
   if (!carts || carts.length === 0) return [];
 
-  // Get owner emails (uses security definer to bypass RLS)
+  // Get owner emails
+  const ownerIds = [...new Set(carts.map((c) => c.owner_id))];
   const ownerEmailMap: Record<string, string> = {};
   await Promise.all(
     ownerIds.map(async (ownerId) => {
@@ -183,20 +198,10 @@ export async function getSharedWithMeCarts(): Promise<SharedWithMeCart[]> {
     }),
   );
 
-  // Build share map: cart_id -> owner_id
-  const shareOwnerMap: Record<string, string> = {};
-  for (const s of shares) {
-    shareOwnerMap[s.cart_id] = s.owner_id;
-  }
-
-  return carts.map((cart) => {
-    const ownerId = shareOwnerMap[cart.id];
-    const store = cart.stores as unknown as { name: string } | null;
-    return {
-      cartId: cart.id,
-      ownerEmail: ownerEmailMap[ownerId] ?? ownerId ?? "",
-      total: cart.total,
-      storeName: store?.name ?? null,
-    };
-  });
+  return carts.map((c) => ({
+    cartId: c.cart_id,
+    ownerEmail: ownerEmailMap[c.owner_id] ?? "",
+    total: c.total,
+    storeName: c.store_name ?? null,
+  }));
 }

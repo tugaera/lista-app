@@ -763,5 +763,23 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
 
 -- ============================================================
+-- Get carts shared with the current user (bypasses RLS on shopping_carts)
+CREATE OR REPLACE FUNCTION public.get_shared_carts_for_user()
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER STABLE AS $$
+DECLARE v_user_id uuid := auth.uid();
+BEGIN
+  RETURN COALESCE((
+    SELECT jsonb_agg(row_to_json(t))
+    FROM (
+      SELECT sc.id AS cart_id, cs.owner_id, sc.total, sc.store_id, s.name AS store_name
+      FROM cart_shares cs
+      JOIN shopping_carts sc ON sc.id = cs.cart_id
+      LEFT JOIN stores s ON s.id = sc.store_id
+      WHERE cs.shared_with_user_id = v_user_id
+        AND sc.finalized_at IS NULL
+    ) t
+  ), '[]'::jsonb);
+END; $$;
+
 -- DONE! All migrations applied.
 -- ============================================================
