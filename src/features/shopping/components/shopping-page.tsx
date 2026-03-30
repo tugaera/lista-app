@@ -10,7 +10,7 @@ import { getListWithItems } from "@/features/lists/actions";
 import { CartItemList } from "./cart-item-list";
 import { QuickAddForm } from "./quick-add-form";
 import { BarcodeScanner } from "./barcode-scanner";
-import { ListTrackingPanel, type TrackingItem } from "./list-tracking-panel";
+import { ListTrackingPanel, type TrackingItem, findMatchingTrackingItems } from "./list-tracking-panel";
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
 
 type Store = { id: string; name: string; is_active?: boolean };
@@ -60,6 +60,13 @@ export function ShoppingPage({
   );
   const [showListPicker, setShowListPicker] = useState(false);
   const [loadingList, setLoadingList] = useState(false);
+  const [manuallyChecked, setManuallyChecked] = useState<Set<string>>(new Set());
+  // Multi-match modal: when a new cart item matches multiple tracking items
+  const [matchModal, setMatchModal] = useState<{
+    cartItemName: string;
+    candidates: TrackingItem[];
+    selected: Set<string>;
+  } | null>(null);
 
   // Share panel
   const [showSharePanel, setShowSharePanel] = useState(false);
@@ -271,6 +278,23 @@ export function ShoppingPage({
     setItems((prev) => {
       const exists = prev.find((i) => i.id === item.id);
       if (exists) return prev.map((i) => (i.id === item.id ? { ...item } : i));
+
+      // Check for multi-match on tracking list (use current items before adding new one)
+      if (trackingList) {
+        const matches = findMatchingTrackingItems(item, trackingList.items, manuallyChecked, prev);
+        if (matches.length >= 2) {
+          // Show multi-match modal
+          setMatchModal({
+            cartItemName: item.productName,
+            candidates: matches,
+            selected: new Set(matches.map((m) => m.id)), // pre-select all
+          });
+        } else if (matches.length === 1) {
+          // Auto-check the single match
+          setManuallyChecked((s) => new Set([...s, matches[0].id]));
+        }
+      }
+
       return [...prev, item];
     });
     setScannedBarcode(undefined);
@@ -280,7 +304,26 @@ export function ShoppingPage({
       event: "item-insert",
       payload: { item, senderId: currentUserId },
     });
-  }, [currentUserId]);
+  }, [currentUserId, trackingList, manuallyChecked]);
+
+  const handleManualCheck = useCallback((itemId: string) => {
+    setManuallyChecked((prev) => {
+      const next = new Set(prev);
+      if (next.has(itemId)) next.delete(itemId);
+      else next.add(itemId);
+      return next;
+    });
+  }, []);
+
+  function handleMatchModalConfirm() {
+    if (!matchModal) return;
+    setManuallyChecked((prev) => {
+      const next = new Set(prev);
+      for (const id of matchModal.selected) next.add(id);
+      return next;
+    });
+    setMatchModal(null);
+  }
 
   const handleItemRemoved = useCallback((itemId: string) => {
     setItems((prev) => prev.filter((i) => i.id !== itemId));
@@ -658,8 +701,11 @@ export function ShoppingPage({
             listName={trackingList.name}
             items={trackingList.items}
             cartItems={items}
+            manuallyChecked={manuallyChecked}
+            onManualCheck={handleManualCheck}
             onClose={() => {
               setTrackingList(null);
+              setManuallyChecked(new Set());
               const supabase = createBrowserSupabaseClient();
               supabase.rpc("update_cart_tracking_list", { p_cart_id: cartId, p_tracking_list_id: null });
               broadcastChannelRef.current?.send({
@@ -763,6 +809,77 @@ export function ShoppingPage({
                 </li>
               ))}
             </ul>
+          </div>
+        </div>
+      )}
+
+      {/* Multi-match modal: product matches multiple tracking list items */}
+      {matchModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-4"
+          onClick={(e) => { if (e.target === e.currentTarget) setMatchModal(null); }}
+        >
+          <div className="w-full max-w-sm rounded-2xl bg-white shadow-xl">
+            <div className="border-b border-gray-100 px-5 py-4">
+              <h3 className="text-base font-semibold text-gray-900">Multiple matches found</h3>
+              <p className="mt-1 text-sm text-gray-500">
+                <span className="font-medium text-gray-700">&ldquo;{matchModal.cartItemName}&rdquo;</span> matches several items on your list. Which ones do you want to mark as picked?
+              </p>
+            </div>
+            <ul className="max-h-60 overflow-y-auto p-3">
+              {matchModal.candidates.map((item) => {
+                const isSelected = matchModal.selected.has(item.id);
+                return (
+                  <li key={item.id}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMatchModal((prev) => {
+                          if (!prev) return prev;
+                          const next = new Set(prev.selected);
+                          if (next.has(item.id)) next.delete(item.id);
+                          else next.add(item.id);
+                          return { ...prev, selected: next };
+                        });
+                      }}
+                      className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-sm transition-colors ${
+                        isSelected ? "bg-emerald-50" : "hover:bg-gray-50"
+                      }`}
+                    >
+                      <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors ${
+                        isSelected ? "border-emerald-500 bg-emerald-500" : "border-gray-300 bg-white"
+                      }`}>
+                        {isSelected && (
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
+                      </span>
+                      <span className={isSelected ? "text-emerald-800 font-medium" : "text-gray-700"}>{item.name}</span>
+                      {item.plannedQty !== 1 && (
+                        <span className="ml-auto shrink-0 text-xs text-gray-400">&times;{item.plannedQty}</span>
+                      )}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+            <div className="flex gap-2 border-t border-gray-100 px-5 py-4">
+              <button
+                type="button"
+                onClick={() => setMatchModal(null)}
+                className="flex-1 rounded-xl bg-gray-100 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-200"
+              >
+                Skip
+              </button>
+              <button
+                type="button"
+                onClick={handleMatchModalConfirm}
+                className="flex-1 rounded-xl bg-emerald-600 py-2.5 text-sm font-medium text-white hover:bg-emerald-700"
+              >
+                Mark picked ({matchModal.selected.size})
+              </button>
+            </div>
           </div>
         </div>
       )}

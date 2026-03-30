@@ -14,6 +14,8 @@ interface ListTrackingPanelProps {
   listName: string;
   items: TrackingItem[];
   cartItems: CartItemDisplay[];
+  manuallyChecked: Set<string>;
+  onManualCheck: (itemId: string) => void;
   onClose: () => void;
 }
 
@@ -21,7 +23,7 @@ function normalise(s: string) {
   return s.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
-function isMatched(item: TrackingItem, cartItems: CartItemDisplay[]): boolean {
+export function isMatchedByCart(item: TrackingItem, cartItems: CartItemDisplay[]): boolean {
   // 1. Product ID match (most reliable)
   if (item.productId) {
     if (cartItems.some((c) => c.productId === item.productId)) return true;
@@ -34,21 +36,43 @@ function isMatched(item: TrackingItem, cartItems: CartItemDisplay[]): boolean {
   });
 }
 
+/** Find all tracking items that match a given cart item (by productId or name) */
+export function findMatchingTrackingItems(
+  cartItem: CartItemDisplay,
+  trackingItems: TrackingItem[],
+  alreadyChecked: Set<string>,
+  existingCartItems: CartItemDisplay[],
+): TrackingItem[] {
+  return trackingItems.filter((ti) => {
+    // Skip already checked or already auto-matched items
+    if (alreadyChecked.has(ti.id)) return false;
+    if (isMatchedByCart(ti, existingCartItems)) return false;
+
+    // Product ID match
+    if (ti.productId && cartItem.productId && ti.productId === cartItem.productId) return true;
+
+    // Name match
+    const needle = normalise(ti.name);
+    const hay = normalise(cartItem.productName);
+    return hay.includes(needle) || needle.includes(hay);
+  });
+}
+
 export function ListTrackingPanel({
   listName,
   items,
   cartItems,
+  manuallyChecked,
+  onManualCheck,
   onClose,
 }: ListTrackingPanelProps) {
   const [collapsed, setCollapsed] = useState(false);
-  // Manually checked items (toggled by user, in addition to auto-matched)
-  const [manuallyChecked, setManuallyChecked] = useState<Set<string>>(new Set());
 
   const { matched, unmatched } = useMemo(() => {
     const matched: TrackingItem[] = [];
     const unmatched: TrackingItem[] = [];
     for (const item of items) {
-      if (isMatched(item, cartItems) || manuallyChecked.has(item.id)) {
+      if (isMatchedByCart(item, cartItems) || manuallyChecked.has(item.id)) {
         matched.push(item);
       } else {
         unmatched.push(item);
@@ -56,15 +80,6 @@ export function ListTrackingPanel({
     }
     return { matched, unmatched };
   }, [items, cartItems, manuallyChecked]);
-
-  function toggleManualCheck(itemId: string) {
-    setManuallyChecked((prev) => {
-      const next = new Set(prev);
-      if (next.has(itemId)) next.delete(itemId);
-      else next.add(itemId);
-      return next;
-    });
-  }
 
   const doneCount = matched.length;
   const totalCount = items.length;
@@ -123,7 +138,7 @@ export function ListTrackingPanel({
             <li key={item.id} className="flex items-center gap-2 py-1">
               <button
                 type="button"
-                onClick={() => toggleManualCheck(item.id)}
+                onClick={() => onManualCheck(item.id)}
                 className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 border-gray-300 bg-white hover:border-emerald-400 hover:bg-emerald-50 transition-colors"
                 aria-label={`Mark ${item.name} as done`}
               >
@@ -137,13 +152,13 @@ export function ListTrackingPanel({
           ))}
           {/* Matched (done) */}
           {matched.map((item) => {
-            const autoMatched = isMatched(item, cartItems);
+            const autoMatched = isMatchedByCart(item, cartItems);
             const isManual = manuallyChecked.has(item.id);
             return (
               <li key={item.id} className="flex items-center gap-2 py-1 opacity-50">
                 <button
                   type="button"
-                  onClick={() => !autoMatched ? toggleManualCheck(item.id) : undefined}
+                  onClick={() => !autoMatched ? onManualCheck(item.id) : undefined}
                   className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${
                     autoMatched
                       ? "bg-emerald-500 cursor-default"
