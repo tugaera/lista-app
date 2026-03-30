@@ -41,16 +41,30 @@ export function ListTrackingPanel({
   onClose,
 }: ListTrackingPanelProps) {
   const [collapsed, setCollapsed] = useState(false);
+  // Manually checked items (toggled by user, in addition to auto-matched)
+  const [manuallyChecked, setManuallyChecked] = useState<Set<string>>(new Set());
 
   const { matched, unmatched } = useMemo(() => {
     const matched: TrackingItem[] = [];
     const unmatched: TrackingItem[] = [];
     for (const item of items) {
-      if (isMatched(item, cartItems)) matched.push(item);
-      else unmatched.push(item);
+      if (isMatched(item, cartItems) || manuallyChecked.has(item.id)) {
+        matched.push(item);
+      } else {
+        unmatched.push(item);
+      }
     }
     return { matched, unmatched };
-  }, [items, cartItems]);
+  }, [items, cartItems, manuallyChecked]);
+
+  function toggleManualCheck(itemId: string) {
+    setManuallyChecked((prev) => {
+      const next = new Set(prev);
+      if (next.has(itemId)) next.delete(itemId);
+      else next.add(itemId);
+      return next;
+    });
+  }
 
   const doneCount = matched.length;
   const totalCount = items.length;
@@ -107,29 +121,48 @@ export function ListTrackingPanel({
           {/* Unmatched first */}
           {unmatched.map((item) => (
             <li key={item.id} className="flex items-center gap-2 py-1">
-              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 border-gray-300 bg-white">
+              <button
+                type="button"
+                onClick={() => toggleManualCheck(item.id)}
+                className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 border-gray-300 bg-white hover:border-emerald-400 hover:bg-emerald-50 transition-colors"
+                aria-label={`Mark ${item.name} as done`}
+              >
                 <span className="h-2 w-2 rounded-full bg-gray-300" />
-              </span>
+              </button>
               <span className="text-sm text-gray-700">{item.name}</span>
               {item.plannedQty !== 1 && (
-                <span className="ml-auto shrink-0 text-xs text-gray-400">×{item.plannedQty}</span>
+                <span className="ml-auto shrink-0 text-xs text-gray-400">&times;{item.plannedQty}</span>
               )}
             </li>
           ))}
           {/* Matched (done) */}
-          {matched.map((item) => (
-            <li key={item.id} className="flex items-center gap-2 py-1 opacity-50">
-              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                </svg>
-              </span>
-              <span className="text-sm text-gray-500 line-through">{item.name}</span>
-              {item.plannedQty !== 1 && (
-                <span className="ml-auto shrink-0 text-xs text-gray-400">×{item.plannedQty}</span>
-              )}
-            </li>
-          ))}
+          {matched.map((item) => {
+            const autoMatched = isMatched(item, cartItems);
+            const isManual = manuallyChecked.has(item.id);
+            return (
+              <li key={item.id} className="flex items-center gap-2 py-1 opacity-50">
+                <button
+                  type="button"
+                  onClick={() => !autoMatched ? toggleManualCheck(item.id) : undefined}
+                  className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${
+                    autoMatched
+                      ? "bg-emerald-500 cursor-default"
+                      : "bg-emerald-400 hover:bg-emerald-300 cursor-pointer"
+                  }`}
+                  aria-label={isManual ? `Unmark ${item.name}` : `${item.name} done`}
+                  disabled={autoMatched}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  </svg>
+                </button>
+                <span className="text-sm text-gray-500 line-through">{item.name}</span>
+                {item.plannedQty !== 1 && (
+                  <span className="ml-auto shrink-0 text-xs text-gray-400">&times;{item.plannedQty}</span>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>

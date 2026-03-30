@@ -525,6 +525,14 @@ export interface Database {
         Args: { p_cart_id: string };
         Returns: string | null;
       };
+      update_cart_tracking_list: {
+        Args: { p_cart_id: string; p_tracking_list_id: string | null };
+        Returns: void;
+      };
+      get_cart_tracking_list_id: {
+        Args: { p_cart_id: string };
+        Returns: string | null;
+      };
       recalculate_cart_total: {
         Args: { p_cart_id: string };
         Returns: void;

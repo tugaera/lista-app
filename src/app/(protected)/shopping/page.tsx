@@ -101,10 +101,17 @@ export default async function ShoppingRoute({
     isSharedCart ? Promise.resolve([]) : getCartShares(cartId),
   ]);
 
-  // If a list was requested via URL, fetch its items for tracking
+  // Load tracking list: from URL param, or from cart's saved tracking_list_id
+  let trackingListId = listId ?? null;
+  if (!trackingListId) {
+    // Check if cart has a saved tracking list
+    const { data: savedTrackingId } = await supabase.rpc("get_cart_tracking_list_id", { p_cart_id: cartId });
+    if (savedTrackingId) trackingListId = savedTrackingId as string;
+  }
+
   let initialTrackingList: { id: string; name: string; items: TrackingItem[] } | null = null;
-  if (listId) {
-    const { list, items: listItems } = await getListWithItems(listId);
+  if (trackingListId) {
+    const { list, items: listItems } = await getListWithItems(trackingListId);
     if (list) {
       initialTrackingList = {
         id: list.id,
@@ -116,6 +123,10 @@ export default async function ShoppingRoute({
           plannedQty: i.planned_quantity,
         })),
       };
+      // If loaded from URL, save to cart for shared users
+      if (listId && !isSharedCart) {
+        supabase.rpc("update_cart_tracking_list", { p_cart_id: cartId, p_tracking_list_id: list.id });
+      }
     }
   }
 

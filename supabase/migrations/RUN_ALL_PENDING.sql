@@ -629,6 +629,50 @@ BEGIN
   END IF;
 END $$;
 
+-- === Migration: Add tracking_list_id to shopping_carts ===
+ALTER TABLE shopping_carts ADD COLUMN IF NOT EXISTS tracking_list_id uuid REFERENCES shopping_lists(id) ON DELETE SET NULL;
+
+-- Security definer RPC to update tracking list (shared users can call this)
+CREATE OR REPLACE FUNCTION update_cart_tracking_list(p_cart_id uuid, p_tracking_list_id uuid)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_user_id uuid := auth.uid();
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM shopping_carts sc
+    WHERE sc.id = p_cart_id
+      AND (sc.user_id = v_user_id
+        OR EXISTS (SELECT 1 FROM cart_shares cs WHERE cs.cart_id = sc.id AND cs.shared_with_user_id = v_user_id))
+  ) THEN
+    RAISE EXCEPTION 'Access denied';
+  END IF;
+
+  UPDATE shopping_carts SET tracking_list_id = p_tracking_list_id WHERE id = p_cart_id;
+END;
+$$;
+
+-- Security definer RPC to get cart tracking list ID (shared users can call this)
+CREATE OR REPLACE FUNCTION get_cart_tracking_list_id(p_cart_id uuid)
+RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_user_id uuid := auth.uid();
+  v_result uuid;
+BEGIN
+  SELECT sc.tracking_list_id INTO v_result
+  FROM shopping_carts sc
+  WHERE sc.id = p_cart_id
+    AND (sc.user_id = v_user_id
+      OR EXISTS (SELECT 1 FROM cart_shares cs WHERE cs.cart_id = sc.id AND cs.shared_with_user_id = v_user_id));
+  RETURN v_result;
+END;
+$$;
+
 -- ============================================================
 -- DONE! All migrations applied.
 -- ============================================================

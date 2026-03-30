@@ -118,6 +118,7 @@ create table shopping_carts (
   id uuid primary key default uuid_generate_v4(),
   user_id uuid not null references auth.users(id) on delete cascade,
   store_id uuid references stores(id),
+  tracking_list_id uuid references shopping_lists(id) on delete set null,
   total numeric(10, 2) not null default 0,
   receipt_image_url text,
   finalized_at timestamptz,
@@ -563,6 +564,46 @@ begin
   delete from shopping_list_items where id = p_item_id and list_id = p_list_id;
 end;
 $$ language plpgsql security definer;
+
+-- Update cart tracking list (security definer for shared users)
+create or replace function public.update_cart_tracking_list(p_cart_id uuid, p_tracking_list_id uuid)
+returns void
+language plpgsql
+security definer
+as $$
+declare
+  v_user_id uuid := auth.uid();
+begin
+  if not exists (
+    select 1 from shopping_carts sc
+    where sc.id = p_cart_id
+      and (sc.user_id = v_user_id
+        or exists (select 1 from cart_shares cs where cs.cart_id = sc.id and cs.shared_with_user_id = v_user_id))
+  ) then
+    raise exception 'Access denied';
+  end if;
+  update shopping_carts set tracking_list_id = p_tracking_list_id where id = p_cart_id;
+end;
+$$;
+
+-- Get cart tracking list ID (security definer for shared users)
+create or replace function public.get_cart_tracking_list_id(p_cart_id uuid)
+returns uuid
+language plpgsql
+security definer
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_result uuid;
+begin
+  select sc.tracking_list_id into v_result
+  from shopping_carts sc
+  where sc.id = p_cart_id
+    and (sc.user_id = v_user_id
+      or exists (select 1 from cart_shares cs where cs.cart_id = sc.id and cs.shared_with_user_id = v_user_id));
+  return v_result;
+end;
+$$;
 
 -- Validate invite code (callable by anon for signup)
 create or replace function public.validate_invite_code(invite_code text)

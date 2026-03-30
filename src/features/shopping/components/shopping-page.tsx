@@ -136,6 +136,21 @@ export function ShoppingPage({
         if (msg.senderId === currentUserId) return;
         setItems((prev) => prev.filter((item) => item.id !== msg.itemId));
       })
+      // Broadcast: tracking list changed
+      .on("broadcast", { event: "tracking-list-change" }, (payload) => {
+        const msg = payload.payload as {
+          listId: string | null;
+          listName?: string;
+          items?: TrackingItem[];
+          senderId: string;
+        };
+        if (msg.senderId === currentUserId) return;
+        if (!msg.listId) {
+          setTrackingList(null);
+        } else if (msg.listName && msg.items) {
+          setTrackingList({ id: msg.listId, name: msg.listName, items: msg.items });
+        }
+      })
       // Also listen to postgres_changes as fallback for the cart owner
       .on(
         "postgres_changes",
@@ -301,11 +316,22 @@ export function ShoppingPage({
 
   async function handleSelectList(listId: string) {
     setShowListPicker(false);
-    if (!listId) { setTrackingList(null); return; }
+    const supabase = createBrowserSupabaseClient();
+    if (!listId) {
+      setTrackingList(null);
+      // Save to DB + broadcast
+      supabase.rpc("update_cart_tracking_list", { p_cart_id: cartId, p_tracking_list_id: null });
+      broadcastChannelRef.current?.send({
+        type: "broadcast",
+        event: "tracking-list-change",
+        payload: { listId: null, senderId: currentUserId },
+      });
+      return;
+    }
     setLoadingList(true);
     const { list, items: listItems } = await getListWithItems(listId);
     if (list) {
-      setTrackingList({
+      const trackingData = {
         id: list.id,
         name: list.name,
         items: listItems.map((i) => ({
@@ -314,6 +340,14 @@ export function ShoppingPage({
           name: (i.products as unknown as { name: string } | null)?.name ?? "Unknown",
           plannedQty: i.planned_quantity,
         })),
+      };
+      setTrackingList(trackingData);
+      // Save to DB + broadcast
+      supabase.rpc("update_cart_tracking_list", { p_cart_id: cartId, p_tracking_list_id: list.id });
+      broadcastChannelRef.current?.send({
+        type: "broadcast",
+        event: "tracking-list-change",
+        payload: { listId: list.id, listName: list.name, items: trackingData.items, senderId: currentUserId },
       });
     }
     setLoadingList(false);
@@ -624,7 +658,16 @@ export function ShoppingPage({
             listName={trackingList.name}
             items={trackingList.items}
             cartItems={items}
-            onClose={() => setTrackingList(null)}
+            onClose={() => {
+              setTrackingList(null);
+              const supabase = createBrowserSupabaseClient();
+              supabase.rpc("update_cart_tracking_list", { p_cart_id: cartId, p_tracking_list_id: null });
+              broadcastChannelRef.current?.send({
+                type: "broadcast",
+                event: "tracking-list-change",
+                payload: { listId: null, senderId: currentUserId },
+              });
+            }}
           />
         </div>
       )}
