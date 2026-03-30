@@ -269,7 +269,7 @@ begin
 end;
 $$ language plpgsql security definer stable;
 
--- Get a list by id (bypasses RLS — checks access via list_shares or ownership)
+-- Get a list by id (bypasses RLS — checks access via list_shares, ownership, or tracking list on shared cart)
 create or replace function public.get_list_by_id(p_list_id uuid)
 returns jsonb as $$
 declare
@@ -280,7 +280,10 @@ begin
     select 1 from shopping_lists sl
     where sl.id = p_list_id
       and (sl.user_id = v_user_id
-        or exists (select 1 from list_shares ls where ls.list_id = sl.id and ls.shared_with_user_id = v_user_id))
+        or exists (select 1 from list_shares ls where ls.list_id = sl.id and ls.shared_with_user_id = v_user_id)
+        or exists (select 1 from shopping_carts sc
+                   join cart_shares cs on cs.cart_id = sc.id
+                   where sc.tracking_list_id = p_list_id and cs.shared_with_user_id = v_user_id))
   ) into v_has_access;
 
   if not v_has_access then
@@ -298,7 +301,7 @@ begin
 end;
 $$ language plpgsql security definer stable;
 
--- Get list items (bypasses RLS — checks access via list_shares or ownership)
+-- Get list items (bypasses RLS — checks access via list_shares, ownership, or tracking list on shared cart)
 create or replace function public.get_list_items(p_list_id uuid)
 returns jsonb as $$
 declare
@@ -309,7 +312,10 @@ begin
     select 1 from shopping_lists sl
     where sl.id = p_list_id
       and (sl.user_id = v_user_id
-        or exists (select 1 from list_shares ls where ls.list_id = sl.id and ls.shared_with_user_id = v_user_id))
+        or exists (select 1 from list_shares ls where ls.list_id = sl.id and ls.shared_with_user_id = v_user_id)
+        or exists (select 1 from shopping_carts sc
+                   join cart_shares cs on cs.cart_id = sc.id
+                   where sc.tracking_list_id = p_list_id and cs.shared_with_user_id = v_user_id))
   ) into v_has_access;
 
   if not v_has_access then

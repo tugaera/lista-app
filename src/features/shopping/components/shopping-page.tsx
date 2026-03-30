@@ -96,6 +96,12 @@ export function ShoppingPage({
   // Broadcast channel ref for sending events from this client
   const broadcastChannelRef = useRef<ReturnType<ReturnType<typeof createBrowserSupabaseClient>["channel"]> | null>(null);
 
+  // Refs for values needed inside broadcast handlers (avoid stale closures)
+  const trackingListRef = useRef(trackingList);
+  trackingListRef.current = trackingList;
+  const manuallyCheckedRef = useRef(manuallyChecked);
+  manuallyCheckedRef.current = manuallyChecked;
+
   // Realtime subscription for cart items using Broadcast (works across RLS boundaries)
   useEffect(() => {
     const supabase = createBrowserSupabaseClient();
@@ -112,6 +118,26 @@ export function ShoppingPage({
         if (msg.senderId === currentUserId) return;
         setItems((prev) => {
           if (prev.find((i) => i.id === msg.item.id)) return prev;
+          // Suppress auto-matching for multi-match items — let the sender's
+          // tracking-check broadcasts decide which items get marked
+          if (trackingListRef.current) {
+            const matches = findMatchingTrackingItems(
+              msg.item,
+              trackingListRef.current.items,
+              manuallyCheckedRef.current,
+              prev,
+            );
+            if (matches.length >= 2) {
+              setSuppressedAutoMatch((s) => {
+                const next = new Set(s);
+                for (const m of matches) next.add(m.id);
+                return next;
+              });
+            } else if (matches.length === 1) {
+              // Single match: auto-check it (same as owner would)
+              setManuallyChecked((s) => new Set([...s, matches[0].id]));
+            }
+          }
           return [...prev, msg.item];
         });
       })

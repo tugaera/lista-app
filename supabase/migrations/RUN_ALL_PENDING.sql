@@ -375,7 +375,10 @@ BEGIN
     SELECT 1 FROM shopping_lists sl
     WHERE sl.id = p_list_id
       AND (sl.user_id = v_user_id
-        OR EXISTS (SELECT 1 FROM list_shares ls WHERE ls.list_id = sl.id AND ls.shared_with_user_id = v_user_id))
+        OR EXISTS (SELECT 1 FROM list_shares ls WHERE ls.list_id = sl.id AND ls.shared_with_user_id = v_user_id)
+        OR EXISTS (SELECT 1 FROM shopping_carts sc
+                   JOIN cart_shares cs ON cs.cart_id = sc.id
+                   WHERE sc.tracking_list_id = p_list_id AND cs.shared_with_user_id = v_user_id))
   ) INTO v_has_access;
   IF NOT v_has_access THEN RETURN null; END IF;
   RETURN (SELECT row_to_json(t) FROM (SELECT id, user_id, name, created_at FROM shopping_lists WHERE id = p_list_id) t);
@@ -393,7 +396,10 @@ BEGIN
     SELECT 1 FROM shopping_lists sl
     WHERE sl.id = p_list_id
       AND (sl.user_id = v_user_id
-        OR EXISTS (SELECT 1 FROM list_shares ls WHERE ls.list_id = sl.id AND ls.shared_with_user_id = v_user_id))
+        OR EXISTS (SELECT 1 FROM list_shares ls WHERE ls.list_id = sl.id AND ls.shared_with_user_id = v_user_id)
+        OR EXISTS (SELECT 1 FROM shopping_carts sc
+                   JOIN cart_shares cs ON cs.cart_id = sc.id
+                   WHERE sc.tracking_list_id = p_list_id AND cs.shared_with_user_id = v_user_id))
   ) INTO v_has_access;
   IF NOT v_has_access THEN RETURN '[]'::jsonb; END IF;
   RETURN COALESCE((
