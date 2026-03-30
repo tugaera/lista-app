@@ -86,12 +86,50 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
     emailMapRef.current = map;
   }, [items, currentUserId, currentUserEmail]);
 
-  // Realtime subscription for list items
+  // Broadcast channel ref for sending events from this client
+  const broadcastChannelRef = useRef<ReturnType<ReturnType<typeof createBrowserSupabaseClient>["channel"]> | null>(null);
+
+  // Realtime subscription for list items using Broadcast + postgres_changes fallback
   useEffect(() => {
     const supabase = createBrowserSupabaseClient();
 
     const channel = supabase
-      .channel(`list-items-${list.id}`)
+      .channel(`list-sync-${list.id}`)
+      // Broadcast: INSERT
+      .on("broadcast", { event: "item-insert" }, (payload) => {
+        const msg = payload.payload as {
+          item: ListItemWithProduct;
+          senderId: string;
+        };
+        if (msg.senderId === currentUserId) return;
+        setItems((prev) => {
+          if (prev.find((i) => i.id === msg.item.id)) return prev;
+          return [...prev, msg.item];
+        });
+      })
+      // Broadcast: UPDATE
+      .on("broadcast", { event: "item-update" }, (payload) => {
+        const msg = payload.payload as {
+          itemId: string;
+          planned_quantity: number;
+          senderId: string;
+        };
+        if (msg.senderId === currentUserId) return;
+        setItems((prev) =>
+          prev.map((item) =>
+            item.id === msg.itemId
+              ? { ...item, planned_quantity: msg.planned_quantity }
+              : item,
+          ),
+        );
+      })
+      // Broadcast: DELETE
+      .on("broadcast", { event: "item-delete" }, (payload) => {
+        const msg = payload.payload as { itemId: string; senderId: string };
+        if (msg.senderId === currentUserId) return;
+        setItems((prev) => prev.filter((item) => item.id !== msg.itemId));
+      })
+      // postgres_changes fallback for owner
       .on(
         "postgres_changes",
         {
@@ -132,7 +170,6 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
               } as ListItemWithProduct,
             ];
           });
-          // If email unknown, resolve via RPC and update item
           if (row.added_by && !addedByEmail) {
             supabase.rpc("get_profile_email_by_id", { user_id: row.added_by }).then(({ data }) => {
               if (data) {
@@ -182,10 +219,13 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
       )
       .subscribe();
 
+    broadcastChannelRef.current = channel;
+
     return () => {
       supabase.removeChannel(channel);
+      broadcastChannelRef.current = null;
     };
-  }, [list.id]);
+  }, [list.id, currentUserId]);
 
   // ── Barcode scan ────────────────────────────────────────────────────────
   async function handleBarcodeScan(barcode: string) {
@@ -267,24 +307,33 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
       }
 
       if (result && "merged" in result && result.merged) {
+        const newQty = (items.find(i => i.id === result.item.id)?.planned_quantity ?? 0) + qty;
         setItems((prev) =>
           prev.map((item) =>
             item.id === result.item.id
-              ? { ...item, planned_quantity: item.planned_quantity + qty }
+              ? { ...item, planned_quantity: newQty }
               : item,
           ),
         );
+        broadcastChannelRef.current?.send({
+          type: "broadcast",
+          event: "item-update",
+          payload: { itemId: result.item.id, planned_quantity: newQty, senderId: currentUserId },
+        });
       } else if (result && "item" in result && result.item) {
         const newItem = result.item as ListItemWithProduct;
-        setItems((prev) => [
-          ...prev,
-          {
-            ...newItem,
-            products: newItem.product_id
-              ? { id: newItem.product_id, name: result.productName ?? name, barcode: barcode ?? null }
-              : null,
-          },
-        ]);
+        const fullItem = {
+          ...newItem,
+          products: newItem.product_id
+            ? { id: newItem.product_id, name: result.productName ?? name, barcode: barcode ?? null }
+            : null,
+        };
+        setItems((prev) => [...prev, fullItem]);
+        broadcastChannelRef.current?.send({
+          type: "broadcast",
+          event: "item-insert",
+          payload: { item: fullItem, senderId: currentUserId },
+        });
       }
 
       setProductName("");
@@ -300,6 +349,11 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
     const itemId = deleteConfirm;
     setItems((prev) => prev.filter((i) => i.id !== itemId));
     setDeleteConfirm(null);
+    broadcastChannelRef.current?.send({
+      type: "broadcast",
+      event: "item-delete",
+      payload: { itemId, senderId: currentUserId },
+    });
     startTransition(async () => { await removeListItem(itemId, list.id); });
   }
 
@@ -315,6 +369,11 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
       prev.map((i) => (i.id === itemId ? { ...i, planned_quantity: newQty } : i)),
     );
     setEditingItem(null);
+    broadcastChannelRef.current?.send({
+      type: "broadcast",
+      event: "item-update",
+      payload: { itemId, planned_quantity: newQty, senderId: currentUserId },
+    });
     startTransition(async () => { await updateListItemQuantity(itemId, newQty, list.id); });
   }
 

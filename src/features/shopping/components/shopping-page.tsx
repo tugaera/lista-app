@@ -84,12 +84,59 @@ export function ShoppingPage({
     emailMapRef.current = map;
   }, [items, currentUserId, currentUserEmail]);
 
-  // Realtime subscription for cart items
+  // Broadcast channel ref for sending events from this client
+  const broadcastChannelRef = useRef<ReturnType<ReturnType<typeof createBrowserSupabaseClient>["channel"]> | null>(null);
+
+  // Realtime subscription for cart items using Broadcast (works across RLS boundaries)
   useEffect(() => {
     const supabase = createBrowserSupabaseClient();
 
     const channel = supabase
-      .channel(`cart-items-${cartId}`)
+      .channel(`cart-sync-${cartId}`)
+      // Broadcast: INSERT
+      .on("broadcast", { event: "item-insert" }, (payload) => {
+        const msg = payload.payload as {
+          item: CartItemDisplay;
+          senderId: string;
+        };
+        // Skip events from self (already handled optimistically)
+        if (msg.senderId === currentUserId) return;
+        setItems((prev) => {
+          if (prev.find((i) => i.id === msg.item.id)) return prev;
+          return [...prev, msg.item];
+        });
+      })
+      // Broadcast: UPDATE
+      .on("broadcast", { event: "item-update" }, (payload) => {
+        const msg = payload.payload as {
+          itemId: string;
+          quantity: number;
+          price?: number;
+          originalPrice?: number | null;
+          senderId: string;
+        };
+        if (msg.senderId === currentUserId) return;
+        setItems((prev) =>
+          prev.map((item) =>
+            item.id === msg.itemId
+              ? {
+                  ...item,
+                  quantity: msg.quantity,
+                  price: msg.price ?? item.price,
+                  originalPrice: msg.originalPrice !== undefined ? msg.originalPrice : item.originalPrice,
+                  subtotal: (msg.price ?? item.price) * msg.quantity,
+                }
+              : item,
+          ),
+        );
+      })
+      // Broadcast: DELETE
+      .on("broadcast", { event: "item-delete" }, (payload) => {
+        const msg = payload.payload as { itemId: string; senderId: string };
+        if (msg.senderId === currentUserId) return;
+        setItems((prev) => prev.filter((item) => item.id !== msg.itemId));
+      })
+      // Also listen to postgres_changes as fallback for the cart owner
       .on(
         "postgres_changes",
         {
@@ -127,7 +174,6 @@ export function ShoppingPage({
             if (prev.find((i) => i.id === newItem.id)) return prev;
             return [...prev, newItem];
           });
-          // If email unknown, resolve via RPC and update item
           if (row.added_by && !addedByEmail) {
             supabase.rpc("get_profile_email_by_id", { user_id: row.added_by }).then(({ data }) => {
               if (data) {
@@ -191,10 +237,13 @@ export function ShoppingPage({
       )
       .subscribe();
 
+    broadcastChannelRef.current = channel;
+
     return () => {
       supabase.removeChannel(channel);
+      broadcastChannelRef.current = null;
     };
-  }, [cartId]);
+  }, [cartId, currentUserId]);
 
   // Load shares when panel opens
   useEffect(() => {
@@ -210,11 +259,22 @@ export function ShoppingPage({
       return [...prev, item];
     });
     setScannedBarcode(undefined);
-  }, []);
+    // Broadcast to other participants
+    broadcastChannelRef.current?.send({
+      type: "broadcast",
+      event: "item-insert",
+      payload: { item, senderId: currentUserId },
+    });
+  }, [currentUserId]);
 
   const handleItemRemoved = useCallback((itemId: string) => {
     setItems((prev) => prev.filter((i) => i.id !== itemId));
-  }, []);
+    broadcastChannelRef.current?.send({
+      type: "broadcast",
+      event: "item-delete",
+      payload: { itemId, senderId: currentUserId },
+    });
+  }, [currentUserId]);
 
   const handleItemUpdated = useCallback((itemId: string, newQuantity: number) => {
     setItems((prev) =>
@@ -222,7 +282,12 @@ export function ShoppingPage({
         i.id === itemId ? { ...i, quantity: newQuantity, subtotal: i.price * newQuantity } : i,
       ),
     );
-  }, []);
+    broadcastChannelRef.current?.send({
+      type: "broadcast",
+      event: "item-update",
+      payload: { itemId, quantity: newQuantity, senderId: currentUserId },
+    });
+  }, [currentUserId]);
 
   async function handleStoreChange(newStoreId: string) {
     setStoreId(newStoreId);
