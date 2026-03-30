@@ -114,18 +114,25 @@ export function ShoppingPage({
 
   // Debounced save of check state to DB
   const saveCheckStateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isInitialMount = useRef(true);
   useEffect(() => {
     if (!trackingList) return;
+    // Skip saving on initial mount (we just loaded from DB)
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
     if (saveCheckStateTimeoutRef.current) clearTimeout(saveCheckStateTimeoutRef.current);
-    saveCheckStateTimeoutRef.current = setTimeout(() => {
+    saveCheckStateTimeoutRef.current = setTimeout(async () => {
       const supabase = createBrowserSupabaseClient();
-      supabase.rpc("update_tracking_check_state", {
+      const { error } = await supabase.rpc("update_tracking_check_state", {
         p_cart_id: cartId,
         p_state: {
           manuallyChecked: [...manuallyChecked],
           suppressedAutoMatch: [...suppressedAutoMatch],
         } as unknown as Record<string, unknown>,
       });
+      if (error) console.error("Failed to save check state:", error);
     }, 500);
     return () => {
       if (saveCheckStateTimeoutRef.current) clearTimeout(saveCheckStateTimeoutRef.current);
