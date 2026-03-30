@@ -156,8 +156,31 @@ export function ShoppingPage({
         if (msg.senderId === currentUserId) return;
         if (!msg.listId) {
           setTrackingList(null);
+          setManuallyChecked(new Set());
+          setSuppressedAutoMatch(new Set());
         } else if (msg.listName && msg.items) {
           setTrackingList({ id: msg.listId, name: msg.listName, items: msg.items });
+          setManuallyChecked(new Set());
+          setSuppressedAutoMatch(new Set());
+        }
+      })
+      // Broadcast: tracking item check/uncheck
+      .on("broadcast", { event: "tracking-check" }, (payload) => {
+        const msg = payload.payload as { itemId: string; checked: boolean; senderId: string };
+        if (msg.senderId === currentUserId) return;
+        if (msg.checked) {
+          setManuallyChecked((prev) => new Set([...prev, msg.itemId]));
+        } else {
+          setManuallyChecked((prev) => {
+            const next = new Set(prev);
+            next.delete(msg.itemId);
+            return next;
+          });
+          setSuppressedAutoMatch((prev) => {
+            const next = new Set(prev);
+            next.delete(msg.itemId);
+            return next;
+          });
         }
       })
       // Also listen to postgres_changes as fallback for the cart owner
@@ -309,13 +332,40 @@ export function ShoppingPage({
   }, [currentUserId, trackingList, manuallyChecked]);
 
   const handleManualCheck = useCallback((itemId: string) => {
+    let checked = false;
     setManuallyChecked((prev) => {
       const next = new Set(prev);
-      if (next.has(itemId)) next.delete(itemId);
-      else next.add(itemId);
+      if (next.has(itemId)) {
+        next.delete(itemId);
+        // Also remove from suppressed so auto-match can work again
+        setSuppressedAutoMatch((s) => {
+          const ns = new Set(s);
+          ns.delete(itemId);
+          return ns;
+        });
+      } else {
+        next.add(itemId);
+        checked = true;
+      }
       return next;
     });
-  }, []);
+    // Broadcast to shared users
+    broadcastChannelRef.current?.send({
+      type: "broadcast",
+      event: "tracking-check",
+      payload: { itemId, checked, senderId: currentUserId },
+    });
+  }, [currentUserId]);
+
+  const handleSuppressAutoMatch = useCallback((itemId: string) => {
+    setSuppressedAutoMatch((prev) => new Set([...prev, itemId]));
+    // Broadcast as uncheck
+    broadcastChannelRef.current?.send({
+      type: "broadcast",
+      event: "tracking-check",
+      payload: { itemId, checked: false, senderId: currentUserId },
+    });
+  }, [currentUserId]);
 
   function handleMatchModalConfirm() {
     if (!matchModal) return;
@@ -403,7 +453,7 @@ export function ShoppingPage({
         items: listItems.map((i) => ({
           id: i.id,
           productId: i.product_id ?? null,
-          name: (i.products as unknown as { name: string } | null)?.name ?? "Unknown",
+          name: (i.products as unknown as { name: string } | null)?.name ?? i.product_name ?? "Unknown",
           plannedQty: i.planned_quantity,
         })),
       };
@@ -728,6 +778,7 @@ export function ShoppingPage({
             pendingConfirmation={matchModal ? new Set(matchModal.candidates.map(c => c.id)) : undefined}
             suppressedAutoMatch={suppressedAutoMatch}
             onManualCheck={handleManualCheck}
+            onSuppressAutoMatch={handleSuppressAutoMatch}
             onClose={() => {
               setTrackingList(null);
               setManuallyChecked(new Set());

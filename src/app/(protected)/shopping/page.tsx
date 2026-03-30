@@ -119,7 +119,7 @@ export default async function ShoppingRoute({
         items: listItems.map((i) => ({
           id: i.id,
           productId: i.product_id ?? null,
-          name: (i.products as unknown as { name: string } | null)?.name ?? "Unknown",
+          name: (i.products as unknown as { name: string } | null)?.name ?? i.product_name ?? "Unknown",
           plannedQty: i.planned_quantity,
         })),
       };

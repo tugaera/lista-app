@@ -18,6 +18,7 @@ interface ListTrackingPanelProps {
   pendingConfirmation?: Set<string>;
   suppressedAutoMatch?: Set<string>;
   onManualCheck: (itemId: string) => void;
+  onSuppressAutoMatch?: (itemId: string) => void;
   onClose: () => void;
 }
 
@@ -68,6 +69,7 @@ export function ListTrackingPanel({
   pendingConfirmation,
   suppressedAutoMatch,
   onManualCheck,
+  onSuppressAutoMatch,
   onClose,
 }: ListTrackingPanelProps) {
   const [collapsed, setCollapsed] = useState(false);
@@ -167,20 +169,25 @@ export function ListTrackingPanel({
           ))}
           {/* Matched (done) */}
           {matched.map((item) => {
-            const autoMatched = isMatchedByCart(item, cartItems);
+            const autoMatched = isMatchedByCart(item, cartItems) && !manuallyChecked.has(item.id);
             const isManual = manuallyChecked.has(item.id);
             return (
               <li key={item.id} className="flex items-center gap-2 py-1 opacity-50">
                 <button
                   type="button"
-                  onClick={() => !autoMatched ? onManualCheck(item.id) : undefined}
-                  className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${
+                  onClick={() => {
+                    if (isManual) {
+                      onManualCheck(item.id);
+                    } else if (autoMatched && onSuppressAutoMatch) {
+                      onSuppressAutoMatch(item.id);
+                    }
+                  }}
+                  className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full cursor-pointer ${
                     autoMatched
-                      ? "bg-emerald-500 cursor-default"
-                      : "bg-emerald-400 hover:bg-emerald-300 cursor-pointer"
+                      ? "bg-emerald-500 hover:bg-emerald-400"
+                      : "bg-emerald-400 hover:bg-emerald-300"
                   }`}
-                  aria-label={isManual ? `Unmark ${item.name}` : `${item.name} done`}
-                  disabled={autoMatched}
+                  aria-label={`Unmark ${item.name}`}
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
