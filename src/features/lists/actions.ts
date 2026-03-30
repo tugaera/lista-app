@@ -74,6 +74,7 @@ export async function addListItem(
     redirect("/auth/login");
   }
 
+  const userEmail = user.email ?? null;
   const name = productName.trim();
   let productId: string | null = null;
 
@@ -143,7 +144,7 @@ export async function addListItem(
           .eq("id", existingItem.id);
         if (updateError) return { error: updateError.message };
       }
-      return { item: { id: existingItem.id }, merged: true };
+      return { item: { id: existingItem.id, added_by_email: userEmail }, merged: true };
     }
   }
 
@@ -166,7 +167,7 @@ export async function addListItem(
           .eq("id", existingByName.id);
         if (updateError) return { error: updateError.message };
       }
-      return { item: { id: existingByName.id }, merged: true };
+      return { item: { id: existingByName.id, added_by_email: userEmail }, merged: true };
     }
   }
 
@@ -196,11 +197,11 @@ export async function addListItem(
       .single();
 
     if (error) return { error: error.message };
-    return { item: data, productName: name };
+    return { item: { ...data, added_by_email: userEmail }, productName: name };
   }
 
   return {
-    item: { id: newItemId as string, planned_quantity: quantity, product_id: productId, product_name: name },
+    item: { id: newItemId as string, planned_quantity: quantity, product_id: productId, product_name: name, added_by_email: userEmail },
     productName: name,
   };
 }
