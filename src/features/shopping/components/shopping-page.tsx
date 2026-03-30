@@ -916,6 +916,40 @@ export function ShoppingPage({
             ) : (
               <p className="text-xs text-gray-500">No members yet. Invite someone by email.</p>
             )}
+
+            {/* Carts shared with me */}
+            {sharedWithMeCarts.length > 0 && (
+              <div className="mt-4 border-t border-gray-100 pt-4">
+                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Carts shared with me</h3>
+                <ul className="space-y-1">
+                  {sharedWithMeCarts.map((shared) => (
+                    <li key={shared.cartId} className="flex items-center gap-2 rounded bg-purple-50 px-3 py-1.5 text-sm">
+                      <span className="flex-1 truncate text-purple-800">{shared.ownerEmail}</span>
+                      <a
+                        href={`/shopping?cart=${shared.cartId}`}
+                        className="shrink-0 rounded px-2 py-0.5 text-xs font-medium text-purple-600 hover:bg-purple-100"
+                      >
+                        Open
+                      </a>
+                      <button
+                        type="button"
+                        disabled={leavingCartId === shared.cartId}
+                        onClick={async () => {
+                          if (!confirm(`Leave ${shared.ownerEmail}'s cart?`)) return;
+                          setLeavingCartId(shared.cartId);
+                          const result = await leaveSharedCart(shared.cartId);
+                          setLeavingCartId(null);
+                          if (!result.error) router.refresh();
+                        }}
+                        className="shrink-0 text-xs text-red-500 hover:text-red-700 disabled:opacity-50"
+                      >
+                        {leavingCartId === shared.cartId ? "..." : "Leave"}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         </div>
       )}
