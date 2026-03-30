@@ -533,6 +533,14 @@ export interface Database {
         Args: { p_cart_id: string };
         Returns: string | null;
       };
+      get_tracking_check_state: {
+        Args: { p_cart_id: string };
+        Returns: Record<string, unknown>;
+      };
+      update_tracking_check_state: {
+        Args: { p_cart_id: string; p_state: Record<string, unknown> };
+        Returns: void;
+      };
       recalculate_cart_total: {
         Args: { p_cart_id: string };
         Returns: void;

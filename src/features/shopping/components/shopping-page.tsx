@@ -23,6 +23,7 @@ type ShoppingPageProps = {
   stores: Store[];
   lists: ListPreview[];
   initialTrackingList: { id: string; name: string; items: TrackingItem[] } | null;
+  initialCheckState?: { manuallyChecked: string[]; suppressedAutoMatch: string[] };
   sharedWithMeCarts?: SharedWithMeCart[];
   isSharedCart?: boolean;
   ownerEmail?: string;
@@ -38,6 +39,7 @@ export function ShoppingPage({
   stores,
   lists,
   initialTrackingList,
+  initialCheckState,
   sharedWithMeCarts = [],
   isSharedCart = false,
   ownerEmail,
@@ -60,9 +62,13 @@ export function ShoppingPage({
   );
   const [showListPicker, setShowListPicker] = useState(false);
   const [loadingList, setLoadingList] = useState(false);
-  const [manuallyChecked, setManuallyChecked] = useState<Set<string>>(new Set());
+  const [manuallyChecked, setManuallyChecked] = useState<Set<string>>(
+    new Set(initialCheckState?.manuallyChecked ?? [])
+  );
   // Items the user explicitly chose NOT to mark — suppresses auto-matching
-  const [suppressedAutoMatch, setSuppressedAutoMatch] = useState<Set<string>>(new Set());
+  const [suppressedAutoMatch, setSuppressedAutoMatch] = useState<Set<string>>(
+    new Set(initialCheckState?.suppressedAutoMatch ?? [])
+  );
   // Multi-match modal: when a new cart item matches multiple tracking items
   const [matchModal, setMatchModal] = useState<{
     cartItemName: string;
@@ -101,6 +107,26 @@ export function ShoppingPage({
   trackingListRef.current = trackingList;
   const manuallyCheckedRef = useRef(manuallyChecked);
   manuallyCheckedRef.current = manuallyChecked;
+
+  // Debounced save of check state to DB
+  const saveCheckStateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  useEffect(() => {
+    if (!trackingList) return;
+    if (saveCheckStateTimeoutRef.current) clearTimeout(saveCheckStateTimeoutRef.current);
+    saveCheckStateTimeoutRef.current = setTimeout(() => {
+      const supabase = createBrowserSupabaseClient();
+      supabase.rpc("update_tracking_check_state", {
+        p_cart_id: cartId,
+        p_state: {
+          manuallyChecked: [...manuallyChecked],
+          suppressedAutoMatch: [...suppressedAutoMatch],
+        } as unknown as Record<string, unknown>,
+      });
+    }, 500);
+    return () => {
+      if (saveCheckStateTimeoutRef.current) clearTimeout(saveCheckStateTimeoutRef.current);
+    };
+  }, [manuallyChecked, suppressedAutoMatch, cartId, trackingList]);
 
   // Realtime subscription for cart items using Broadcast (works across RLS boundaries)
   useEffect(() => {

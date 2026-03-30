@@ -119,6 +119,7 @@ create table shopping_carts (
   user_id uuid not null references auth.users(id) on delete cascade,
   store_id uuid references stores(id),
   tracking_list_id uuid references shopping_lists(id) on delete set null,
+  tracking_check_state jsonb not null default '{}'::jsonb,
   total numeric(10, 2) not null default 0,
   receipt_image_url text,
   finalized_at timestamptz,
@@ -588,7 +589,10 @@ begin
   ) then
     raise exception 'Access denied';
   end if;
-  update shopping_carts set tracking_list_id = p_tracking_list_id where id = p_cart_id;
+  update shopping_carts
+  set tracking_list_id = p_tracking_list_id,
+      tracking_check_state = case when p_tracking_list_id is null then '{}'::jsonb else tracking_check_state end
+  where id = p_cart_id;
 end;
 $$;
 
@@ -608,6 +612,46 @@ begin
     and (sc.user_id = v_user_id
       or exists (select 1 from cart_shares cs where cs.cart_id = sc.id and cs.shared_with_user_id = v_user_id));
   return v_result;
+end;
+$$;
+
+-- Get tracking check state (security definer for shared users)
+create or replace function public.get_tracking_check_state(p_cart_id uuid)
+returns jsonb
+language plpgsql
+security definer stable
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_result jsonb;
+begin
+  select sc.tracking_check_state into v_result
+  from shopping_carts sc
+  where sc.id = p_cart_id
+    and (sc.user_id = v_user_id
+      or exists (select 1 from cart_shares cs where cs.cart_id = sc.id and cs.shared_with_user_id = v_user_id));
+  return coalesce(v_result, '{}'::jsonb);
+end;
+$$;
+
+-- Update tracking check state (security definer for shared users)
+create or replace function public.update_tracking_check_state(p_cart_id uuid, p_state jsonb)
+returns void
+language plpgsql
+security definer
+as $$
+declare
+  v_user_id uuid := auth.uid();
+begin
+  if not exists (
+    select 1 from shopping_carts sc
+    where sc.id = p_cart_id
+      and (sc.user_id = v_user_id
+        or exists (select 1 from cart_shares cs where cs.cart_id = sc.id and cs.shared_with_user_id = v_user_id))
+  ) then
+    raise exception 'Access denied';
+  end if;
+  update shopping_carts set tracking_check_state = p_state where id = p_cart_id;
 end;
 $$;
 
