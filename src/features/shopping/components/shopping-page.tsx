@@ -14,7 +14,7 @@ import { ListTrackingPanel, type TrackingItem, findMatchingTrackingItems } from 
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
 
 type Store = { id: string; name: string; is_active?: boolean };
-type ListPreview = { id: string; name: string; item_count: number };
+type ListPreview = { id: string; name: string; item_count: number; isShared?: boolean };
 
 type ShoppingPageProps = {
   cartId: string;
@@ -1055,8 +1055,15 @@ export function ShoppingPage({
                       trackingList?.id === l.id ? "bg-blue-50 font-semibold text-blue-700" : "text-gray-800"
                     }`}
                   >
-                    <span>{l.name}</span>
-                    <span className="ml-2 shrink-0 text-xs text-gray-400">{l.item_count} items</span>
+                    <span className="flex items-center gap-2 min-w-0">
+                      <span className="truncate">{l.name}</span>
+                      {l.isShared && (
+                        <span className="shrink-0 rounded-full bg-purple-100 px-1.5 py-0.5 text-[10px] font-medium text-purple-700">shared</span>
+                      )}
+                    </span>
+                    {!l.isShared && (
+                      <span className="ml-2 shrink-0 text-xs text-gray-400">{l.item_count} items</span>
+                    )}
                   </button>
                 </li>
               ))}

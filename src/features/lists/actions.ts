@@ -373,27 +373,48 @@ export async function convertListToCart(listId: string) {
   return { cartId: cart.id };
 }
 
-/** Lightweight list fetch for dropdowns (id, name, item count only) */
+/** Lightweight list fetch for dropdowns — includes owned lists + lists shared with the user */
 export async function getListsPreview(): Promise<{
-  lists: { id: string; name: string; item_count: number }[];
+  lists: { id: string; name: string; item_count: number; isShared?: boolean }[];
 }> {
   const supabase = await createServerSupabaseClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/auth/login");
 
-  const { data } = await supabase
+  // Owned lists
+  const { data: ownedLists } = await supabase
     .from("shopping_lists")
     .select("id, name, shopping_list_items(count)")
     .eq("user_id", user.id)
     .order("created_at", { ascending: false });
 
-  return {
-    lists: (data ?? []).map((l) => ({
-      id: l.id,
-      name: l.name,
-      item_count: (l.shopping_list_items as unknown as { count: number }[])?.[0]?.count ?? 0,
-    })),
-  };
+  const owned = (ownedLists ?? []).map((l) => ({
+    id: l.id,
+    name: l.name,
+    item_count: (l.shopping_list_items as unknown as { count: number }[])?.[0]?.count ?? 0,
+    isShared: false,
+  }));
+
+  // Lists shared with this user (via security definer RPC)
+  const { data: sharedRaw } = await supabase.rpc("get_shared_lists_for_user");
+  const sharedItems = sharedRaw as unknown as Array<{
+    list_id: string;
+    list_name: string;
+    owner_email: string | null;
+  }> | null;
+
+  const shared = (sharedItems ?? []).map((s) => ({
+    id: s.list_id,
+    name: `${s.list_name}${s.owner_email ? ` (${s.owner_email})` : ""}`,
+    item_count: 0,
+    isShared: true,
+  }));
+
+  // Deduplicate (owner might also appear as shared member somehow)
+  const ownedIds = new Set(owned.map((l) => l.id));
+  const deduped = shared.filter((s) => !ownedIds.has(s.id));
+
+  return { lists: [...owned, ...deduped] };
 }
 
 export async function getLists() {
