@@ -202,6 +202,8 @@ export interface Database {
           id: string;
           user_id: string;
           store_id: string | null;
+          tracking_list_id: string | null;
+          tracking_check_state: Record<string, unknown>;
           total: number;
           receipt_image_url: string | null;
           finalized_at: string | null;
@@ -211,6 +213,8 @@ export interface Database {
           id?: string;
           user_id: string;
           store_id?: string | null;
+          tracking_list_id?: string | null;
+          tracking_check_state?: Record<string, unknown>;
           total: number;
           receipt_image_url?: string | null;
           finalized_at?: string | null;
@@ -220,6 +224,8 @@ export interface Database {
           id?: string;
           user_id?: string;
           store_id?: string | null;
+          tracking_list_id?: string | null;
+          tracking_check_state?: Record<string, unknown>;
           total?: number;
           receipt_image_url?: string | null;
           finalized_at?: string | null;

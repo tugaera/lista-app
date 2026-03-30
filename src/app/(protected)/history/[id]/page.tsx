@@ -66,7 +66,7 @@ export default async function CartDetailRoute({
 
   return (
     <CartDetailView
-      cart={cart}
+      cart={cart as never}
       items={(items ?? []) as never[]}
       receiptImages={receiptImages}
     />

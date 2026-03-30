@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import type { CartItemDisplay } from "@/features/shopping/actions";
 import { finalizeCart, updateCartStore } from "@/features/shopping/actions";
 import type { CartShareInfo, SharedWithMeCart } from "@/features/shopping/actions-shares";
-import { shareCart, getCartShares, revokeCartShare } from "@/features/shopping/actions-shares";
+import { shareCart, getCartShares, revokeCartShare, leaveSharedCart } from "@/features/shopping/actions-shares";
 import { getListWithItems } from "@/features/lists/actions";
 import { CartItemList } from "./cart-item-list";
 import { QuickAddForm } from "./quick-add-form";
@@ -82,6 +82,10 @@ export function ShoppingPage({
   const [shares, setShares] = useState<CartShareInfo[]>(initialShares);
   const [shareError, setShareError] = useState<string | null>(null);
   const [shareLoading, startShareTransition] = useTransition();
+
+  // Cart switcher
+  const [showCartSwitcher, setShowCartSwitcher] = useState(false);
+  const [leavingCartId, setLeavingCartId] = useState<string | null>(null);
   const [urlCopied, setUrlCopied] = useState(false);
 
   // Build a userId → email map from initial items + current user for realtime events
@@ -110,18 +114,25 @@ export function ShoppingPage({
 
   // Debounced save of check state to DB
   const saveCheckStateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isInitialMount = useRef(true);
   useEffect(() => {
     if (!trackingList) return;
+    // Skip saving on initial mount (we just loaded from DB)
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
     if (saveCheckStateTimeoutRef.current) clearTimeout(saveCheckStateTimeoutRef.current);
-    saveCheckStateTimeoutRef.current = setTimeout(() => {
+    saveCheckStateTimeoutRef.current = setTimeout(async () => {
       const supabase = createBrowserSupabaseClient();
-      supabase.rpc("update_tracking_check_state", {
+      const { error } = await supabase.rpc("update_tracking_check_state", {
         p_cart_id: cartId,
         p_state: {
           manuallyChecked: [...manuallyChecked],
           suppressedAutoMatch: [...suppressedAutoMatch],
         } as unknown as Record<string, unknown>,
       });
+      if (error) console.error("Failed to save check state:", error);
     }, 500);
     return () => {
       if (saveCheckStateTimeoutRef.current) clearTimeout(saveCheckStateTimeoutRef.current);
@@ -487,8 +498,11 @@ export function ShoppingPage({
     const supabase = createBrowserSupabaseClient();
     if (!listId) {
       setTrackingList(null);
+      setManuallyChecked(new Set());
+      setSuppressedAutoMatch(new Set());
       // Save to DB + broadcast
-      supabase.rpc("update_cart_tracking_list", { p_cart_id: cartId, p_tracking_list_id: null });
+      const { error } = await supabase.rpc("update_cart_tracking_list", { p_cart_id: cartId, p_tracking_list_id: null });
+      if (error) console.error("Failed to clear tracking list:", error);
       broadcastChannelRef.current?.send({
         type: "broadcast",
         event: "tracking-list-change",
@@ -510,8 +524,11 @@ export function ShoppingPage({
         })),
       };
       setTrackingList(trackingData);
-      // Save to DB + broadcast
-      supabase.rpc("update_cart_tracking_list", { p_cart_id: cartId, p_tracking_list_id: list.id });
+      setManuallyChecked(new Set());
+      setSuppressedAutoMatch(new Set());
+      // Save to DB + broadcast — AWAIT to ensure it persists before any refresh
+      const { error } = await supabase.rpc("update_cart_tracking_list", { p_cart_id: cartId, p_tracking_list_id: list.id });
+      if (error) console.error("Failed to save tracking list:", error);
       broadcastChannelRef.current?.send({
         type: "broadcast",
         event: "tracking-list-change",
@@ -685,6 +702,114 @@ export function ShoppingPage({
             {items.length}
           </span>
 
+          {/* Cart switcher button (shows when there are shared carts) */}
+          {sharedWithMeCarts.length > 0 && (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowCartSwitcher((v) => !v)}
+                title="Switch cart"
+                className={`shrink-0 rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors ${
+                  showCartSwitcher
+                    ? "border-blue-200 bg-blue-50 text-blue-700"
+                    : "border-gray-200 text-gray-500 hover:border-gray-300 hover:text-gray-700"
+                }`}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-blue-500 text-[10px] font-bold text-white">
+                  {sharedWithMeCarts.length}
+                </span>
+              </button>
+
+              {/* Dropdown */}
+              {showCartSwitcher && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setShowCartSwitcher(false)} />
+                  <div className="absolute right-0 top-full z-50 mt-2 w-64 rounded-xl border border-gray-200 bg-white shadow-xl">
+                    <div className="border-b border-gray-100 px-3 py-2">
+                      <p className="text-xs font-semibold text-gray-500 uppercase">Shared Carts</p>
+                    </div>
+                    <ul className="max-h-60 overflow-y-auto py-1">
+                      {/* My cart option (if currently viewing a shared cart) */}
+                      {isSharedCart && (
+                        <li>
+                          <a
+                            href="/shopping"
+                            className="flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 transition-colors"
+                          >
+                            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 100 4 2 2 0 000-4z" />
+                              </svg>
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-medium text-gray-900">My Cart</p>
+                              <p className="text-xs text-gray-500">Switch to your own cart</p>
+                            </div>
+                          </a>
+                        </li>
+                      )}
+                      {sharedWithMeCarts.map((shared) => (
+                        <li key={shared.cartId}>
+                          <div className="flex items-center gap-2 px-3 py-2.5 hover:bg-gray-50 transition-colors">
+                            <a
+                              href={`/shopping?cart=${shared.cartId}`}
+                              className="flex flex-1 items-center gap-3 min-w-0"
+                            >
+                              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-purple-100 text-purple-600">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                                </svg>
+                              </span>
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm font-medium text-gray-900 truncate">{shared.ownerEmail}</p>
+                                <p className="text-xs text-gray-500">Shared cart</p>
+                              </div>
+                            </a>
+                            <button
+                              type="button"
+                              title="Leave this shared cart"
+                              disabled={leavingCartId === shared.cartId}
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                if (!confirm(`Leave ${shared.ownerEmail}'s cart?`)) return;
+                                setLeavingCartId(shared.cartId);
+                                const result = await leaveSharedCart(shared.cartId);
+                                setLeavingCartId(null);
+                                if (!result.error) {
+                                  // If we're currently viewing this cart, go back to our own
+                                  if (isSharedCart) {
+                                    router.push("/shopping");
+                                  } else {
+                                    router.refresh();
+                                  }
+                                }
+                              }}
+                              className="shrink-0 rounded-lg p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500 transition-colors"
+                            >
+                              {leavingCartId === shared.cartId ? (
+                                <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                                  <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" className="opacity-25" />
+                                  <path d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" fill="currentColor" className="opacity-75" />
+                                </svg>
+                              ) : (
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                                </svg>
+                              )}
+                            </button>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
           {/* Share button (only for own carts) */}
           {!isSharedCart && (
             <button
@@ -711,30 +836,6 @@ export function ShoppingPage({
           <div className="rounded-lg bg-purple-50 px-4 py-2 text-sm text-purple-700">
             Shopping with <span className="font-medium">{ownerEmail}</span>
           </div>
-        </div>
-      )}
-
-      {/* Shared-with-me invitations */}
-      {sharedWithMeCarts.length > 0 && (
-        <div className="mx-auto w-full max-w-lg px-4 pt-3 space-y-2">
-          {sharedWithMeCarts.map((shared) => (
-            <div
-              key={shared.cartId}
-              className="flex items-center justify-between rounded-lg bg-blue-50 px-4 py-2 text-sm"
-            >
-              <span className="text-blue-800">
-                You&apos;re invited to{" "}
-                <span className="font-medium">{shared.ownerEmail || "a shared"}</span>
-                &apos;s cart
-              </span>
-              <a
-                href={`/shopping?cart=${shared.cartId}`}
-                className="ml-3 rounded bg-blue-600 px-2 py-1 text-xs font-medium text-white hover:bg-blue-700"
-              >
-                Join
-              </a>
-            </div>
-          ))}
         </div>
       )}
 
@@ -831,12 +932,13 @@ export function ShoppingPage({
             suppressedAutoMatch={suppressedAutoMatch}
             onManualCheck={handleManualCheck}
             onSuppressAutoMatch={handleSuppressAutoMatch}
-            onClose={() => {
+            onClose={async () => {
               setTrackingList(null);
               setManuallyChecked(new Set());
               setSuppressedAutoMatch(new Set());
               const supabase = createBrowserSupabaseClient();
-              supabase.rpc("update_cart_tracking_list", { p_cart_id: cartId, p_tracking_list_id: null });
+              const { error } = await supabase.rpc("update_cart_tracking_list", { p_cart_id: cartId, p_tracking_list_id: null });
+              if (error) console.error("Failed to clear tracking list:", error);
               broadcastChannelRef.current?.send({
                 type: "broadcast",
                 event: "tracking-list-change",
