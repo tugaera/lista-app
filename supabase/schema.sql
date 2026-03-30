@@ -615,6 +615,49 @@ begin
 end;
 $$;
 
+-- Leave a shared cart (security definer — RLS only allows owner to delete cart_shares)
+create or replace function public.leave_shared_cart(p_cart_id uuid)
+returns void
+language plpgsql
+security definer
+as $$
+declare
+  v_user_id uuid := auth.uid();
+begin
+  delete from cart_shares
+  where cart_id = p_cart_id
+    and shared_with_user_id = v_user_id;
+end;
+$$;
+
+-- Get carts shared with the current user (security definer — shopping_carts blocked by RLS)
+create or replace function public.get_shared_carts_for_user()
+returns jsonb
+language plpgsql
+security definer stable
+as $$
+declare
+  v_user_id uuid := auth.uid();
+begin
+  return coalesce((
+    select jsonb_agg(row_to_json(t))
+    from (
+      select
+        sc.id as cart_id,
+        cs.owner_id,
+        sc.total,
+        sc.store_id,
+        s.name as store_name
+      from cart_shares cs
+      join shopping_carts sc on sc.id = cs.cart_id
+      left join stores s on s.id = sc.store_id
+      where cs.shared_with_user_id = v_user_id
+        and sc.finalized_at is null
+    ) t
+  ), '[]'::jsonb);
+end;
+$$;
+
 -- Get tracking check state (security definer for shared users)
 create or replace function public.get_tracking_check_state(p_cart_id uuid)
 returns jsonb
