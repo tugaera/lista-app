@@ -61,6 +61,8 @@ export function ShoppingPage({
   const [showListPicker, setShowListPicker] = useState(false);
   const [loadingList, setLoadingList] = useState(false);
   const [manuallyChecked, setManuallyChecked] = useState<Set<string>>(new Set());
+  // Items the user explicitly chose NOT to mark — suppresses auto-matching
+  const [suppressedAutoMatch, setSuppressedAutoMatch] = useState<Set<string>>(new Set());
   // Multi-match modal: when a new cart item matches multiple tracking items
   const [matchModal, setMatchModal] = useState<{
     cartItemName: string;
@@ -317,9 +319,30 @@ export function ShoppingPage({
 
   function handleMatchModalConfirm() {
     if (!matchModal) return;
+    // Mark selected as checked, suppress unselected from auto-matching
+    const selectedIds = matchModal.selected;
+    const allCandidateIds = matchModal.candidates.map((c) => c.id);
     setManuallyChecked((prev) => {
       const next = new Set(prev);
-      for (const id of matchModal.selected) next.add(id);
+      for (const id of selectedIds) next.add(id);
+      return next;
+    });
+    setSuppressedAutoMatch((prev) => {
+      const next = new Set(prev);
+      for (const id of allCandidateIds) {
+        if (!selectedIds.has(id)) next.add(id);
+      }
+      return next;
+    });
+    setMatchModal(null);
+  }
+
+  function handleMatchModalSkip() {
+    if (!matchModal) return;
+    // Suppress ALL candidates from auto-matching
+    setSuppressedAutoMatch((prev) => {
+      const next = new Set(prev);
+      for (const c of matchModal.candidates) next.add(c.id);
       return next;
     });
     setMatchModal(null);
@@ -703,10 +726,12 @@ export function ShoppingPage({
             cartItems={items}
             manuallyChecked={manuallyChecked}
             pendingConfirmation={matchModal ? new Set(matchModal.candidates.map(c => c.id)) : undefined}
+            suppressedAutoMatch={suppressedAutoMatch}
             onManualCheck={handleManualCheck}
             onClose={() => {
               setTrackingList(null);
               setManuallyChecked(new Set());
+              setSuppressedAutoMatch(new Set());
               const supabase = createBrowserSupabaseClient();
               supabase.rpc("update_cart_tracking_list", { p_cart_id: cartId, p_tracking_list_id: null });
               broadcastChannelRef.current?.send({
@@ -818,7 +843,7 @@ export function ShoppingPage({
       {matchModal && (
         <div
           className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-4"
-          onClick={(e) => { if (e.target === e.currentTarget) setMatchModal(null); }}
+          onClick={(e) => { if (e.target === e.currentTarget) handleMatchModalSkip(); }}
         >
           <div className="w-full max-w-sm rounded-2xl bg-white shadow-xl">
             <div className="border-b border-gray-100 px-5 py-4">
@@ -868,7 +893,7 @@ export function ShoppingPage({
             <div className="flex gap-2 border-t border-gray-100 px-5 py-4">
               <button
                 type="button"
-                onClick={() => setMatchModal(null)}
+                onClick={handleMatchModalSkip}
                 className="flex-1 rounded-xl bg-gray-100 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-200"
               >
                 Skip

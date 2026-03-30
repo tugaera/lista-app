@@ -16,6 +16,7 @@ interface ListTrackingPanelProps {
   cartItems: CartItemDisplay[];
   manuallyChecked: Set<string>;
   pendingConfirmation?: Set<string>;
+  suppressedAutoMatch?: Set<string>;
   onManualCheck: (itemId: string) => void;
   onClose: () => void;
 }
@@ -65,6 +66,7 @@ export function ListTrackingPanel({
   cartItems,
   manuallyChecked,
   pendingConfirmation,
+  suppressedAutoMatch,
   onManualCheck,
   onClose,
 }: ListTrackingPanelProps) {
@@ -76,16 +78,23 @@ export function ListTrackingPanel({
     for (const item of items) {
       // Items pending confirmation in the modal should NOT auto-match
       const isPending = pendingConfirmation?.has(item.id);
-      if (!isPending && (isMatchedByCart(item, cartItems) || manuallyChecked.has(item.id))) {
+      // Items the user explicitly chose NOT to mark
+      const isSuppressed = suppressedAutoMatch?.has(item.id);
+
+      if (manuallyChecked.has(item.id)) {
+        // Manually checked always wins
         matched.push(item);
-      } else if (isPending) {
+      } else if (isPending || isSuppressed) {
+        // Don't auto-match these
         unmatched.push(item);
+      } else if (isMatchedByCart(item, cartItems)) {
+        matched.push(item);
       } else {
         unmatched.push(item);
       }
     }
     return { matched, unmatched };
-  }, [items, cartItems, manuallyChecked, pendingConfirmation]);
+  }, [items, cartItems, manuallyChecked, pendingConfirmation, suppressedAutoMatch]);
 
   const doneCount = matched.length;
   const totalCount = items.length;
