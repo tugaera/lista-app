@@ -702,6 +702,7 @@ export function ShoppingPage({
             items={trackingList.items}
             cartItems={items}
             manuallyChecked={manuallyChecked}
+            pendingConfirmation={matchModal ? new Set(matchModal.candidates.map(c => c.id)) : undefined}
             onManualCheck={handleManualCheck}
             onClose={() => {
               setTrackingList(null);

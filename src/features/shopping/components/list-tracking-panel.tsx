@@ -15,6 +15,7 @@ interface ListTrackingPanelProps {
   items: TrackingItem[];
   cartItems: CartItemDisplay[];
   manuallyChecked: Set<string>;
+  pendingConfirmation?: Set<string>;
   onManualCheck: (itemId: string) => void;
   onClose: () => void;
 }
@@ -63,6 +64,7 @@ export function ListTrackingPanel({
   items,
   cartItems,
   manuallyChecked,
+  pendingConfirmation,
   onManualCheck,
   onClose,
 }: ListTrackingPanelProps) {
@@ -72,14 +74,18 @@ export function ListTrackingPanel({
     const matched: TrackingItem[] = [];
     const unmatched: TrackingItem[] = [];
     for (const item of items) {
-      if (isMatchedByCart(item, cartItems) || manuallyChecked.has(item.id)) {
+      // Items pending confirmation in the modal should NOT auto-match
+      const isPending = pendingConfirmation?.has(item.id);
+      if (!isPending && (isMatchedByCart(item, cartItems) || manuallyChecked.has(item.id))) {
         matched.push(item);
+      } else if (isPending) {
+        unmatched.push(item);
       } else {
         unmatched.push(item);
       }
     }
     return { matched, unmatched };
-  }, [items, cartItems, manuallyChecked]);
+  }, [items, cartItems, manuallyChecked, pendingConfirmation]);
 
   const doneCount = matched.length;
   const totalCount = items.length;
