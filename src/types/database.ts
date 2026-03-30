@@ -523,6 +523,10 @@ export interface Database {
         Args: Record<string, never>;
         Returns: unknown;
       };
+      leave_shared_cart: {
+        Args: { p_cart_id: string };
+        Returns: void;
+      };
       get_list_by_id: {
         Args: { p_list_id: string };
         Returns: unknown;

@@ -763,6 +763,14 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
 
 -- ============================================================
+-- Leave a shared cart (security definer — RLS blocks shared users from deleting cart_shares)
+CREATE OR REPLACE FUNCTION public.leave_shared_cart(p_cart_id uuid)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE v_user_id uuid := auth.uid();
+BEGIN
+  DELETE FROM cart_shares WHERE cart_id = p_cart_id AND shared_with_user_id = v_user_id;
+END; $$;
+
 -- Get carts shared with the current user (bypasses RLS on shopping_carts)
 CREATE OR REPLACE FUNCTION public.get_shared_carts_for_user()
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER STABLE AS $$

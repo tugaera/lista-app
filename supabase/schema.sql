@@ -615,6 +615,21 @@ begin
 end;
 $$;
 
+-- Leave a shared cart (security definer — RLS only allows owner to delete cart_shares)
+create or replace function public.leave_shared_cart(p_cart_id uuid)
+returns void
+language plpgsql
+security definer
+as $$
+declare
+  v_user_id uuid := auth.uid();
+begin
+  delete from cart_shares
+  where cart_id = p_cart_id
+    and shared_with_user_id = v_user_id;
+end;
+$$;
+
 -- Get carts shared with the current user (security definer — shopping_carts blocked by RLS)
 create or replace function public.get_shared_carts_for_user()
 returns jsonb

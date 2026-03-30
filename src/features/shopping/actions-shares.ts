@@ -114,11 +114,8 @@ export async function leaveSharedCart(cartId: string): Promise<{ error?: string 
 
   if (!user) return { error: "Not authenticated" };
 
-  const { error } = await supabase
-    .from("cart_shares")
-    .delete()
-    .eq("cart_id", cartId)
-    .eq("shared_with_user_id", user.id);
+  // Use security definer RPC — RLS only allows cart owner to delete cart_shares
+  const { error } = await supabase.rpc("leave_shared_cart", { p_cart_id: cartId });
 
   if (error) return { error: error.message };
   return {};

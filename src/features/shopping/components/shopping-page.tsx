@@ -86,6 +86,7 @@ export function ShoppingPage({
   // Cart switcher
   const [showCartSwitcher, setShowCartSwitcher] = useState(false);
   const [leavingCartId, setLeavingCartId] = useState<string | null>(null);
+  const [leaveConfirm, setLeaveConfirm] = useState<{ cartId: string; ownerEmail: string } | null>(null);
   const [urlCopied, setUrlCopied] = useState(false);
 
   // Build a userId → email map from initial items + current user for realtime events
@@ -772,20 +773,10 @@ export function ShoppingPage({
                               type="button"
                               title="Leave this shared cart"
                               disabled={leavingCartId === shared.cartId}
-                              onClick={async (e) => {
+                              onClick={(e) => {
                                 e.stopPropagation();
-                                if (!confirm(`Leave ${shared.ownerEmail}'s cart?`)) return;
-                                setLeavingCartId(shared.cartId);
-                                const result = await leaveSharedCart(shared.cartId);
-                                setLeavingCartId(null);
-                                if (!result.error) {
-                                  // If we're currently viewing this cart, go back to our own
-                                  if (isSharedCart) {
-                                    router.push("/shopping");
-                                  } else {
-                                    router.refresh();
-                                  }
-                                }
+                                setShowCartSwitcher(false);
+                                setLeaveConfirm({ cartId: shared.cartId, ownerEmail: shared.ownerEmail });
                               }}
                               className="shrink-0 rounded-lg p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500 transition-colors"
                             >
@@ -934,12 +925,8 @@ export function ShoppingPage({
                       <button
                         type="button"
                         disabled={leavingCartId === shared.cartId}
-                        onClick={async () => {
-                          if (!confirm(`Leave ${shared.ownerEmail}'s cart?`)) return;
-                          setLeavingCartId(shared.cartId);
-                          const result = await leaveSharedCart(shared.cartId);
-                          setLeavingCartId(null);
-                          if (!result.error) router.refresh();
+                        onClick={() => {
+                          setLeaveConfirm({ cartId: shared.cartId, ownerEmail: shared.ownerEmail });
                         }}
                         className="shrink-0 text-xs text-red-500 hover:text-red-700 disabled:opacity-50"
                       >
@@ -1143,6 +1130,49 @@ export function ShoppingPage({
                 className="flex-1 rounded-xl bg-emerald-600 py-2.5 text-sm font-medium text-white hover:bg-emerald-700"
               >
                 Mark picked ({matchModal.selected.size})
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Leave shared cart confirmation modal */}
+      {leaveConfirm && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+            <h3 className="mb-1 text-lg font-semibold text-gray-900">Leave cart?</h3>
+            <p className="mb-5 text-sm text-gray-500">
+              You will no longer have access to{" "}
+              <span className="font-medium text-gray-700">{leaveConfirm.ownerEmail}</span>
+              &apos;s cart.
+            </p>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setLeaveConfirm(null)}
+                className="flex-1 rounded-xl bg-gray-100 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-200"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={leavingCartId === leaveConfirm.cartId}
+                onClick={async () => {
+                  setLeavingCartId(leaveConfirm.cartId);
+                  const result = await leaveSharedCart(leaveConfirm.cartId);
+                  setLeavingCartId(null);
+                  setLeaveConfirm(null);
+                  if (!result.error) {
+                    if (isSharedCart) {
+                      router.push("/shopping");
+                    } else {
+                      router.refresh();
+                    }
+                  }
+                }}
+                className="flex-1 rounded-xl bg-red-600 py-2.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {leavingCartId === leaveConfirm.cartId ? "Leaving..." : "Leave cart"}
               </button>
             </div>
           </div>
