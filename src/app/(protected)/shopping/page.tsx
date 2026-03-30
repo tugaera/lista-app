@@ -24,12 +24,13 @@ export default async function ShoppingRoute({
   let cartStoreId: string | null = null;
   let isSharedCart = false;
   let ownerEmail: string | undefined;
+  let trackingListId: string | null = listId ?? null;
 
   if (cartParam) {
     // Verify user has access to this cart (own or shared)
     const { data: ownCart } = await supabase
       .from("shopping_carts")
-      .select("id, store_id")
+      .select("id, store_id, tracking_list_id")
       .eq("id", cartParam)
       .eq("user_id", user.id)
       .maybeSingle();
@@ -37,6 +38,9 @@ export default async function ShoppingRoute({
     if (ownCart) {
       cartId = ownCart.id;
       cartStoreId = ownCart.store_id;
+      if (!trackingListId && ownCart.tracking_list_id) {
+        trackingListId = ownCart.tracking_list_id;
+      }
     } else {
       // Check if shared with this user
       const { data: share } = await supabase
@@ -72,7 +76,7 @@ export default async function ShoppingRoute({
     // Get or create active cart (include store_id)
     const { data: existingCart } = await supabase
       .from("shopping_carts")
-      .select("id, store_id")
+      .select("id, store_id, tracking_list_id")
       .eq("user_id", user.id)
       .is("finalized_at", null)
       .order("created_at", { ascending: false })
@@ -82,6 +86,10 @@ export default async function ShoppingRoute({
     if (existingCart) {
       cartId = existingCart.id;
       cartStoreId = existingCart.store_id;
+      // Pre-load tracking list ID from the direct query (avoids RPC call)
+      if (existingCart.tracking_list_id) {
+        trackingListId = existingCart.tracking_list_id;
+      }
     } else {
       const { data: newCart } = await supabase
         .from("shopping_carts")
@@ -101,10 +109,9 @@ export default async function ShoppingRoute({
     isSharedCart ? Promise.resolve([]) : getCartShares(cartId),
   ]);
 
-  // Load tracking list: from URL param, or from cart's saved tracking_list_id
-  let trackingListId = listId ?? null;
+  // Load tracking list: from URL param, direct query, or RPC fallback for shared users
   if (!trackingListId) {
-    // Check if cart has a saved tracking list
+    // Fallback: use RPC (needed for shared cart users who can't query shopping_carts directly)
     const { data: savedTrackingId } = await supabase.rpc("get_cart_tracking_list_id", { p_cart_id: cartId });
     if (savedTrackingId) trackingListId = savedTrackingId as string;
   }

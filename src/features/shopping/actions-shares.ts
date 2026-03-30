@@ -106,6 +106,24 @@ export async function revokeCartShare(shareId: string): Promise<{ error?: string
   return {};
 }
 
+export async function leaveSharedCart(cartId: string): Promise<{ error?: string }> {
+  const supabase = await createServerSupabaseClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) return { error: "Not authenticated" };
+
+  const { error } = await supabase
+    .from("cart_shares")
+    .delete()
+    .eq("cart_id", cartId)
+    .eq("shared_with_user_id", user.id);
+
+  if (error) return { error: error.message };
+  return {};
+}
+
 export async function joinCartByUrl(
   cartId: string,
 ): Promise<{ ownerEmail?: string; error?: string }> {
