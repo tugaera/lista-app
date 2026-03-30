@@ -101,20 +101,44 @@ export default async function ShoppingRoute({
     isSharedCart ? Promise.resolve([]) : getCartShares(cartId),
   ]);
 
-  // If a list was requested via URL, fetch its items for tracking
+  // Load tracking list: from URL param, or from cart's saved tracking_list_id
+  let trackingListId = listId ?? null;
+  if (!trackingListId) {
+    // Check if cart has a saved tracking list
+    const { data: savedTrackingId } = await supabase.rpc("get_cart_tracking_list_id", { p_cart_id: cartId });
+    if (savedTrackingId) trackingListId = savedTrackingId as string;
+  }
+
   let initialTrackingList: { id: string; name: string; items: TrackingItem[] } | null = null;
-  if (listId) {
-    const { list, items: listItems } = await getListWithItems(listId);
+  let initialCheckState: { manuallyChecked: string[]; suppressedAutoMatch: string[] } = { manuallyChecked: [], suppressedAutoMatch: [] };
+  if (trackingListId) {
+    const [listResult, checkStateResult] = await Promise.all([
+      getListWithItems(trackingListId),
+      supabase.rpc("get_tracking_check_state", { p_cart_id: cartId }),
+    ]);
+    const { list, items: listItems } = listResult;
     if (list) {
       initialTrackingList = {
         id: list.id,
         name: list.name,
-        items: listItems.map((i) => ({
-          id: i.id,
-          productId: i.product_id ?? null,
-          name: (i.products as unknown as { name: string } | null)?.name ?? "Unknown",
-          plannedQty: i.planned_quantity,
+        items: listItems.map((i: Record<string, unknown>) => ({
+          id: i.id as string,
+          productId: (i.product_id as string) ?? null,
+          name: ((i.products as { name: string } | null)?.name ?? (i.product_name as string) ?? "Unknown"),
+          plannedQty: i.planned_quantity as number,
         })),
+      };
+      // If loaded from URL, save to cart for shared users
+      if (listId && !isSharedCart) {
+        supabase.rpc("update_cart_tracking_list", { p_cart_id: cartId, p_tracking_list_id: list.id });
+      }
+    }
+    const rawState = checkStateResult.data;
+    if (rawState && typeof rawState === "object") {
+      const state = rawState as Record<string, unknown>;
+      initialCheckState = {
+        manuallyChecked: Array.isArray(state.manuallyChecked) ? state.manuallyChecked : [],
+        suppressedAutoMatch: Array.isArray(state.suppressedAutoMatch) ? state.suppressedAutoMatch : [],
       };
     }
   }
@@ -132,6 +156,7 @@ export default async function ShoppingRoute({
       stores={storesResult.data ?? []}
       lists={listsResult.lists}
       initialTrackingList={initialTrackingList}
+      initialCheckState={initialCheckState}
       sharedWithMeCarts={filteredSharedCarts}
       isSharedCart={isSharedCart}
       ownerEmail={ownerEmail}

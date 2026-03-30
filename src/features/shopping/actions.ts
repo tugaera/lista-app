@@ -51,6 +51,8 @@ export async function addCartItem(
 
   if (!user) return { error: "Not authenticated" };
 
+  const userEmail = user.email ?? null;
+
   // Try to find existing product (read-only, no INSERT)
   let productId: string | null = null;
 
@@ -177,6 +179,7 @@ export async function addCartItem(
       quantity: newQuantity,
       subtotal: data.price * newQuantity,
       merged: true,
+      addedByEmail: userEmail,
     };
   }
 
@@ -226,6 +229,7 @@ export async function addCartItem(
       quantity: data.quantity,
       subtotal: data.price * data.quantity,
       merged: false,
+      addedByEmail: userEmail,
     };
   }
 
@@ -241,6 +245,7 @@ export async function addCartItem(
     quantity: data.quantity,
     subtotal: data.price * data.quantity,
     merged: false,
+    addedByEmail: userEmail,
   };
 }
 

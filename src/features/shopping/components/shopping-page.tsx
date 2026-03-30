@@ -10,7 +10,7 @@ import { getListWithItems } from "@/features/lists/actions";
 import { CartItemList } from "./cart-item-list";
 import { QuickAddForm } from "./quick-add-form";
 import { BarcodeScanner } from "./barcode-scanner";
-import { ListTrackingPanel, type TrackingItem } from "./list-tracking-panel";
+import { ListTrackingPanel, type TrackingItem, findMatchingTrackingItems } from "./list-tracking-panel";
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
 
 type Store = { id: string; name: string; is_active?: boolean };
@@ -23,6 +23,7 @@ type ShoppingPageProps = {
   stores: Store[];
   lists: ListPreview[];
   initialTrackingList: { id: string; name: string; items: TrackingItem[] } | null;
+  initialCheckState?: { manuallyChecked: string[]; suppressedAutoMatch: string[] };
   sharedWithMeCarts?: SharedWithMeCart[];
   isSharedCart?: boolean;
   ownerEmail?: string;
@@ -38,6 +39,7 @@ export function ShoppingPage({
   stores,
   lists,
   initialTrackingList,
+  initialCheckState,
   sharedWithMeCarts = [],
   isSharedCart = false,
   ownerEmail,
@@ -60,6 +62,19 @@ export function ShoppingPage({
   );
   const [showListPicker, setShowListPicker] = useState(false);
   const [loadingList, setLoadingList] = useState(false);
+  const [manuallyChecked, setManuallyChecked] = useState<Set<string>>(
+    new Set(initialCheckState?.manuallyChecked ?? [])
+  );
+  // Items the user explicitly chose NOT to mark — suppresses auto-matching
+  const [suppressedAutoMatch, setSuppressedAutoMatch] = useState<Set<string>>(
+    new Set(initialCheckState?.suppressedAutoMatch ?? [])
+  );
+  // Multi-match modal: when a new cart item matches multiple tracking items
+  const [matchModal, setMatchModal] = useState<{
+    cartItemName: string;
+    candidates: TrackingItem[];
+    selected: Set<string>;
+  } | null>(null);
 
   // Share panel
   const [showSharePanel, setShowSharePanel] = useState(false);
@@ -84,12 +99,143 @@ export function ShoppingPage({
     emailMapRef.current = map;
   }, [items, currentUserId, currentUserEmail]);
 
-  // Realtime subscription for cart items
+  // Broadcast channel ref for sending events from this client
+  const broadcastChannelRef = useRef<ReturnType<ReturnType<typeof createBrowserSupabaseClient>["channel"]> | null>(null);
+
+  // Refs for values needed inside broadcast handlers (avoid stale closures)
+  const trackingListRef = useRef(trackingList);
+  trackingListRef.current = trackingList;
+  const manuallyCheckedRef = useRef(manuallyChecked);
+  manuallyCheckedRef.current = manuallyChecked;
+
+  // Debounced save of check state to DB
+  const saveCheckStateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  useEffect(() => {
+    if (!trackingList) return;
+    if (saveCheckStateTimeoutRef.current) clearTimeout(saveCheckStateTimeoutRef.current);
+    saveCheckStateTimeoutRef.current = setTimeout(() => {
+      const supabase = createBrowserSupabaseClient();
+      supabase.rpc("update_tracking_check_state", {
+        p_cart_id: cartId,
+        p_state: {
+          manuallyChecked: [...manuallyChecked],
+          suppressedAutoMatch: [...suppressedAutoMatch],
+        } as unknown as Record<string, unknown>,
+      });
+    }, 500);
+    return () => {
+      if (saveCheckStateTimeoutRef.current) clearTimeout(saveCheckStateTimeoutRef.current);
+    };
+  }, [manuallyChecked, suppressedAutoMatch, cartId, trackingList]);
+
+  // Realtime subscription for cart items using Broadcast (works across RLS boundaries)
   useEffect(() => {
     const supabase = createBrowserSupabaseClient();
 
     const channel = supabase
-      .channel(`cart-items-${cartId}`)
+      .channel(`cart-sync-${cartId}`)
+      // Broadcast: INSERT
+      .on("broadcast", { event: "item-insert" }, (payload) => {
+        const msg = payload.payload as {
+          item: CartItemDisplay;
+          senderId: string;
+        };
+        // Skip events from self (already handled optimistically)
+        if (msg.senderId === currentUserId) return;
+        setItems((prev) => {
+          if (prev.find((i) => i.id === msg.item.id)) return prev;
+          // Suppress auto-matching for multi-match items — let the sender's
+          // tracking-check broadcasts decide which items get marked
+          if (trackingListRef.current) {
+            const matches = findMatchingTrackingItems(
+              msg.item,
+              trackingListRef.current.items,
+              manuallyCheckedRef.current,
+              prev,
+            );
+            if (matches.length >= 2) {
+              setSuppressedAutoMatch((s) => {
+                const next = new Set(s);
+                for (const m of matches) next.add(m.id);
+                return next;
+              });
+            } else if (matches.length === 1) {
+              // Single match: auto-check it (same as owner would)
+              setManuallyChecked((s) => new Set([...s, matches[0].id]));
+            }
+          }
+          return [...prev, msg.item];
+        });
+      })
+      // Broadcast: UPDATE
+      .on("broadcast", { event: "item-update" }, (payload) => {
+        const msg = payload.payload as {
+          itemId: string;
+          quantity: number;
+          price?: number;
+          originalPrice?: number | null;
+          senderId: string;
+        };
+        if (msg.senderId === currentUserId) return;
+        setItems((prev) =>
+          prev.map((item) =>
+            item.id === msg.itemId
+              ? {
+                  ...item,
+                  quantity: msg.quantity,
+                  price: msg.price ?? item.price,
+                  originalPrice: msg.originalPrice !== undefined ? msg.originalPrice : item.originalPrice,
+                  subtotal: (msg.price ?? item.price) * msg.quantity,
+                }
+              : item,
+          ),
+        );
+      })
+      // Broadcast: DELETE
+      .on("broadcast", { event: "item-delete" }, (payload) => {
+        const msg = payload.payload as { itemId: string; senderId: string };
+        if (msg.senderId === currentUserId) return;
+        setItems((prev) => prev.filter((item) => item.id !== msg.itemId));
+      })
+      // Broadcast: tracking list changed
+      .on("broadcast", { event: "tracking-list-change" }, (payload) => {
+        const msg = payload.payload as {
+          listId: string | null;
+          listName?: string;
+          items?: TrackingItem[];
+          senderId: string;
+        };
+        if (msg.senderId === currentUserId) return;
+        if (!msg.listId) {
+          setTrackingList(null);
+          setManuallyChecked(new Set());
+          setSuppressedAutoMatch(new Set());
+        } else if (msg.listName && msg.items) {
+          setTrackingList({ id: msg.listId, name: msg.listName, items: msg.items });
+          setManuallyChecked(new Set());
+          setSuppressedAutoMatch(new Set());
+        }
+      })
+      // Broadcast: tracking item check/uncheck
+      .on("broadcast", { event: "tracking-check" }, (payload) => {
+        const msg = payload.payload as { itemId: string; checked: boolean; senderId: string };
+        if (msg.senderId === currentUserId) return;
+        if (msg.checked) {
+          setManuallyChecked((prev) => new Set([...prev, msg.itemId]));
+        } else {
+          setManuallyChecked((prev) => {
+            const next = new Set(prev);
+            next.delete(msg.itemId);
+            return next;
+          });
+          setSuppressedAutoMatch((prev) => {
+            const next = new Set(prev);
+            next.delete(msg.itemId);
+            return next;
+          });
+        }
+      })
+      // Also listen to postgres_changes as fallback for the cart owner
       .on(
         "postgres_changes",
         {
@@ -127,7 +273,6 @@ export function ShoppingPage({
             if (prev.find((i) => i.id === newItem.id)) return prev;
             return [...prev, newItem];
           });
-          // If email unknown, resolve via RPC and update item
           if (row.added_by && !addedByEmail) {
             supabase.rpc("get_profile_email_by_id", { user_id: row.added_by }).then(({ data }) => {
               if (data) {
@@ -191,10 +336,13 @@ export function ShoppingPage({
       )
       .subscribe();
 
+    broadcastChannelRef.current = channel;
+
     return () => {
       supabase.removeChannel(channel);
+      broadcastChannelRef.current = null;
     };
-  }, [cartId]);
+  }, [cartId, currentUserId]);
 
   // Load shares when panel opens
   useEffect(() => {
@@ -207,14 +355,109 @@ export function ShoppingPage({
     setItems((prev) => {
       const exists = prev.find((i) => i.id === item.id);
       if (exists) return prev.map((i) => (i.id === item.id ? { ...item } : i));
+
+      // Check for multi-match on tracking list (use current items before adding new one)
+      if (trackingList) {
+        const matches = findMatchingTrackingItems(item, trackingList.items, manuallyChecked, prev);
+        if (matches.length >= 2) {
+          // Show multi-match modal
+          setMatchModal({
+            cartItemName: item.productName,
+            candidates: matches,
+            selected: new Set(matches.map((m) => m.id)), // pre-select all
+          });
+        } else if (matches.length === 1) {
+          // Auto-check the single match
+          setManuallyChecked((s) => new Set([...s, matches[0].id]));
+        }
+      }
+
       return [...prev, item];
     });
     setScannedBarcode(undefined);
-  }, []);
+    // Broadcast to other participants
+    broadcastChannelRef.current?.send({
+      type: "broadcast",
+      event: "item-insert",
+      payload: { item, senderId: currentUserId },
+    });
+  }, [currentUserId, trackingList, manuallyChecked]);
+
+  const handleManualCheck = useCallback((itemId: string) => {
+    let checked = false;
+    setManuallyChecked((prev) => {
+      const next = new Set(prev);
+      if (next.has(itemId)) {
+        next.delete(itemId);
+        // Also remove from suppressed so auto-match can work again
+        setSuppressedAutoMatch((s) => {
+          const ns = new Set(s);
+          ns.delete(itemId);
+          return ns;
+        });
+      } else {
+        next.add(itemId);
+        checked = true;
+      }
+      return next;
+    });
+    // Broadcast to shared users
+    broadcastChannelRef.current?.send({
+      type: "broadcast",
+      event: "tracking-check",
+      payload: { itemId, checked, senderId: currentUserId },
+    });
+  }, [currentUserId]);
+
+  const handleSuppressAutoMatch = useCallback((itemId: string) => {
+    setSuppressedAutoMatch((prev) => new Set([...prev, itemId]));
+    // Broadcast as uncheck
+    broadcastChannelRef.current?.send({
+      type: "broadcast",
+      event: "tracking-check",
+      payload: { itemId, checked: false, senderId: currentUserId },
+    });
+  }, [currentUserId]);
+
+  function handleMatchModalConfirm() {
+    if (!matchModal) return;
+    // Mark selected as checked, suppress unselected from auto-matching
+    const selectedIds = matchModal.selected;
+    const allCandidateIds = matchModal.candidates.map((c) => c.id);
+    setManuallyChecked((prev) => {
+      const next = new Set(prev);
+      for (const id of selectedIds) next.add(id);
+      return next;
+    });
+    setSuppressedAutoMatch((prev) => {
+      const next = new Set(prev);
+      for (const id of allCandidateIds) {
+        if (!selectedIds.has(id)) next.add(id);
+      }
+      return next;
+    });
+    setMatchModal(null);
+  }
+
+  function handleMatchModalSkip() {
+    if (!matchModal) return;
+    // Suppress ALL candidates from auto-matching
+    setSuppressedAutoMatch((prev) => {
+      const next = new Set(prev);
+      for (const c of matchModal.candidates) next.add(c.id);
+      return next;
+    });
+    setMatchModal(null);
+  }
 
   const handleItemRemoved = useCallback((itemId: string) => {
     setItems((prev) => prev.filter((i) => i.id !== itemId));
-  }, []);
+    broadcastChannelRef.current?.send({
+      type: "broadcast",
+      event: "item-delete",
+      payload: { itemId, senderId: currentUserId },
+    });
+  }, [currentUserId]);
 
   const handleItemUpdated = useCallback((itemId: string, newQuantity: number) => {
     setItems((prev) =>
@@ -222,7 +465,12 @@ export function ShoppingPage({
         i.id === itemId ? { ...i, quantity: newQuantity, subtotal: i.price * newQuantity } : i,
       ),
     );
-  }, []);
+    broadcastChannelRef.current?.send({
+      type: "broadcast",
+      event: "item-update",
+      payload: { itemId, quantity: newQuantity, senderId: currentUserId },
+    });
+  }, [currentUserId]);
 
   async function handleStoreChange(newStoreId: string) {
     setStoreId(newStoreId);
@@ -236,19 +484,38 @@ export function ShoppingPage({
 
   async function handleSelectList(listId: string) {
     setShowListPicker(false);
-    if (!listId) { setTrackingList(null); return; }
+    const supabase = createBrowserSupabaseClient();
+    if (!listId) {
+      setTrackingList(null);
+      // Save to DB + broadcast
+      supabase.rpc("update_cart_tracking_list", { p_cart_id: cartId, p_tracking_list_id: null });
+      broadcastChannelRef.current?.send({
+        type: "broadcast",
+        event: "tracking-list-change",
+        payload: { listId: null, senderId: currentUserId },
+      });
+      return;
+    }
     setLoadingList(true);
     const { list, items: listItems } = await getListWithItems(listId);
     if (list) {
-      setTrackingList({
+      const trackingData = {
         id: list.id,
         name: list.name,
         items: listItems.map((i) => ({
           id: i.id,
           productId: i.product_id ?? null,
-          name: (i.products as unknown as { name: string } | null)?.name ?? "Unknown",
+          name: (i.products as unknown as { name: string } | null)?.name ?? i.product_name ?? "Unknown",
           plannedQty: i.planned_quantity,
         })),
+      };
+      setTrackingList(trackingData);
+      // Save to DB + broadcast
+      supabase.rpc("update_cart_tracking_list", { p_cart_id: cartId, p_tracking_list_id: list.id });
+      broadcastChannelRef.current?.send({
+        type: "broadcast",
+        event: "tracking-list-change",
+        payload: { listId: list.id, listName: list.name, items: trackingData.items, senderId: currentUserId },
       });
     }
     setLoadingList(false);
@@ -559,7 +826,23 @@ export function ShoppingPage({
             listName={trackingList.name}
             items={trackingList.items}
             cartItems={items}
-            onClose={() => setTrackingList(null)}
+            manuallyChecked={manuallyChecked}
+            pendingConfirmation={matchModal ? new Set(matchModal.candidates.map(c => c.id)) : undefined}
+            suppressedAutoMatch={suppressedAutoMatch}
+            onManualCheck={handleManualCheck}
+            onSuppressAutoMatch={handleSuppressAutoMatch}
+            onClose={() => {
+              setTrackingList(null);
+              setManuallyChecked(new Set());
+              setSuppressedAutoMatch(new Set());
+              const supabase = createBrowserSupabaseClient();
+              supabase.rpc("update_cart_tracking_list", { p_cart_id: cartId, p_tracking_list_id: null });
+              broadcastChannelRef.current?.send({
+                type: "broadcast",
+                event: "tracking-list-change",
+                payload: { listId: null, senderId: currentUserId },
+              });
+            }}
           />
         </div>
       )}
@@ -655,6 +938,77 @@ export function ShoppingPage({
                 </li>
               ))}
             </ul>
+          </div>
+        </div>
+      )}
+
+      {/* Multi-match modal: product matches multiple tracking list items */}
+      {matchModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-4"
+          onClick={(e) => { if (e.target === e.currentTarget) handleMatchModalSkip(); }}
+        >
+          <div className="w-full max-w-sm rounded-2xl bg-white shadow-xl">
+            <div className="border-b border-gray-100 px-5 py-4">
+              <h3 className="text-base font-semibold text-gray-900">Multiple matches found</h3>
+              <p className="mt-1 text-sm text-gray-500">
+                <span className="font-medium text-gray-700">&ldquo;{matchModal.cartItemName}&rdquo;</span> matches several items on your list. Which ones do you want to mark as picked?
+              </p>
+            </div>
+            <ul className="max-h-60 overflow-y-auto p-3">
+              {matchModal.candidates.map((item) => {
+                const isSelected = matchModal.selected.has(item.id);
+                return (
+                  <li key={item.id}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMatchModal((prev) => {
+                          if (!prev) return prev;
+                          const next = new Set(prev.selected);
+                          if (next.has(item.id)) next.delete(item.id);
+                          else next.add(item.id);
+                          return { ...prev, selected: next };
+                        });
+                      }}
+                      className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-sm transition-colors ${
+                        isSelected ? "bg-emerald-50" : "hover:bg-gray-50"
+                      }`}
+                    >
+                      <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors ${
+                        isSelected ? "border-emerald-500 bg-emerald-500" : "border-gray-300 bg-white"
+                      }`}>
+                        {isSelected && (
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
+                      </span>
+                      <span className={isSelected ? "text-emerald-800 font-medium" : "text-gray-700"}>{item.name}</span>
+                      {item.plannedQty !== 1 && (
+                        <span className="ml-auto shrink-0 text-xs text-gray-400">&times;{item.plannedQty}</span>
+                      )}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+            <div className="flex gap-2 border-t border-gray-100 px-5 py-4">
+              <button
+                type="button"
+                onClick={handleMatchModalSkip}
+                className="flex-1 rounded-xl bg-gray-100 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-200"
+              >
+                Skip
+              </button>
+              <button
+                type="button"
+                onClick={handleMatchModalConfirm}
+                className="flex-1 rounded-xl bg-emerald-600 py-2.5 text-sm font-medium text-white hover:bg-emerald-700"
+              >
+                Mark picked ({matchModal.selected.size})
+              </button>
+            </div>
           </div>
         </div>
       )}

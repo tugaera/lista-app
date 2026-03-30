@@ -74,6 +74,7 @@ export async function addListItem(
     redirect("/auth/login");
   }
 
+  const userEmail = user.email ?? null;
   const name = productName.trim();
   let productId: string | null = null;
 
@@ -143,7 +144,7 @@ export async function addListItem(
           .eq("id", existingItem.id);
         if (updateError) return { error: updateError.message };
       }
-      return { item: { id: existingItem.id }, merged: true };
+      return { item: { id: existingItem.id, added_by_email: userEmail }, merged: true };
     }
   }
 
@@ -166,7 +167,7 @@ export async function addListItem(
           .eq("id", existingByName.id);
         if (updateError) return { error: updateError.message };
       }
-      return { item: { id: existingByName.id }, merged: true };
+      return { item: { id: existingByName.id, added_by_email: userEmail }, merged: true };
     }
   }
 
@@ -196,11 +197,11 @@ export async function addListItem(
       .single();
 
     if (error) return { error: error.message };
-    return { item: data, productName: name };
+    return { item: { ...data, added_by_email: userEmail }, productName: name };
   }
 
   return {
-    item: { id: newItemId as string, planned_quantity: quantity, product_id: productId, product_name: name },
+    item: { id: newItemId as string, planned_quantity: quantity, product_id: productId, product_name: name, added_by_email: userEmail },
     productName: name,
   };
 }
@@ -435,25 +436,50 @@ export async function getListWithItems(listId: string) {
     redirect("/auth/login");
   }
 
-  const { data: list, error: listError } = await supabase
+  // Try direct query first (owner)
+  let list: { id: string; user_id: string; name: string; created_at: string } | null = null;
+  const { data: directList } = await supabase
     .from("shopping_lists")
     .select("id, user_id, name, created_at")
     .eq("id", listId)
     .eq("user_id", user.id)
     .single();
 
-  if (listError || !list) {
-    return { error: listError?.message || "List not found", list: null, items: [] };
+  if (directList) {
+    list = directList;
+  } else {
+    // Fallback: use RPC for shared access (list shared with user, or tracking list on shared cart)
+    const { data: rpcList } = await supabase.rpc("get_list_by_id", { p_list_id: listId });
+    if (rpcList) {
+      const parsed = typeof rpcList === "string" ? JSON.parse(rpcList) : rpcList;
+      if (parsed) {
+        list = { id: parsed.id, user_id: parsed.user_id, name: parsed.name, created_at: parsed.created_at };
+      }
+    }
   }
 
-  const { data: items, error: itemsError } = await supabase
+  if (!list) {
+    return { error: "List not found", list: null, items: [] };
+  }
+
+  // Try direct query for items
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let items: any[] = [];
+  const { data: directItems, error: itemsError } = await supabase
     .from("shopping_list_items")
     .select("*, products(id, name, barcode)")
     .eq("list_id", listId)
     .order("created_at", { ascending: true });
 
-  if (itemsError) {
-    return { error: itemsError.message, list, items: [] };
+  if (directItems) {
+    items = directItems;
+  } else {
+    // Fallback: use RPC
+    const { data: rpcItems } = await supabase.rpc("get_list_items", { p_list_id: listId });
+    if (rpcItems) {
+      const parsed = typeof rpcItems === "string" ? JSON.parse(rpcItems) : rpcItems;
+      items = Array.isArray(parsed) ? parsed : [];
+    }
   }
 
   return { list, items: items ?? [] };

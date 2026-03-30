@@ -118,6 +118,8 @@ create table shopping_carts (
   id uuid primary key default uuid_generate_v4(),
   user_id uuid not null references auth.users(id) on delete cascade,
   store_id uuid references stores(id),
+  tracking_list_id uuid references shopping_lists(id) on delete set null,
+  tracking_check_state jsonb not null default '{}'::jsonb,
   total numeric(10, 2) not null default 0,
   receipt_image_url text,
   finalized_at timestamptz,
@@ -268,7 +270,7 @@ begin
 end;
 $$ language plpgsql security definer stable;
 
--- Get a list by id (bypasses RLS — checks access via list_shares or ownership)
+-- Get a list by id (bypasses RLS — checks access via list_shares, ownership, or tracking list on shared cart)
 create or replace function public.get_list_by_id(p_list_id uuid)
 returns jsonb as $$
 declare
@@ -279,7 +281,10 @@ begin
     select 1 from shopping_lists sl
     where sl.id = p_list_id
       and (sl.user_id = v_user_id
-        or exists (select 1 from list_shares ls where ls.list_id = sl.id and ls.shared_with_user_id = v_user_id))
+        or exists (select 1 from list_shares ls where ls.list_id = sl.id and ls.shared_with_user_id = v_user_id)
+        or exists (select 1 from shopping_carts sc
+                   join cart_shares cs on cs.cart_id = sc.id
+                   where sc.tracking_list_id = p_list_id and cs.shared_with_user_id = v_user_id))
   ) into v_has_access;
 
   if not v_has_access then
@@ -297,7 +302,7 @@ begin
 end;
 $$ language plpgsql security definer stable;
 
--- Get list items (bypasses RLS — checks access via list_shares or ownership)
+-- Get list items (bypasses RLS — checks access via list_shares, ownership, or tracking list on shared cart)
 create or replace function public.get_list_items(p_list_id uuid)
 returns jsonb as $$
 declare
@@ -308,7 +313,10 @@ begin
     select 1 from shopping_lists sl
     where sl.id = p_list_id
       and (sl.user_id = v_user_id
-        or exists (select 1 from list_shares ls where ls.list_id = sl.id and ls.shared_with_user_id = v_user_id))
+        or exists (select 1 from list_shares ls where ls.list_id = sl.id and ls.shared_with_user_id = v_user_id)
+        or exists (select 1 from shopping_carts sc
+                   join cart_shares cs on cs.cart_id = sc.id
+                   where sc.tracking_list_id = p_list_id and cs.shared_with_user_id = v_user_id))
   ) into v_has_access;
 
   if not v_has_access then
@@ -563,6 +571,89 @@ begin
   delete from shopping_list_items where id = p_item_id and list_id = p_list_id;
 end;
 $$ language plpgsql security definer;
+
+-- Update cart tracking list (security definer for shared users)
+create or replace function public.update_cart_tracking_list(p_cart_id uuid, p_tracking_list_id uuid)
+returns void
+language plpgsql
+security definer
+as $$
+declare
+  v_user_id uuid := auth.uid();
+begin
+  if not exists (
+    select 1 from shopping_carts sc
+    where sc.id = p_cart_id
+      and (sc.user_id = v_user_id
+        or exists (select 1 from cart_shares cs where cs.cart_id = sc.id and cs.shared_with_user_id = v_user_id))
+  ) then
+    raise exception 'Access denied';
+  end if;
+  update shopping_carts
+  set tracking_list_id = p_tracking_list_id,
+      tracking_check_state = case when p_tracking_list_id is null then '{}'::jsonb else tracking_check_state end
+  where id = p_cart_id;
+end;
+$$;
+
+-- Get cart tracking list ID (security definer for shared users)
+create or replace function public.get_cart_tracking_list_id(p_cart_id uuid)
+returns uuid
+language plpgsql
+security definer
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_result uuid;
+begin
+  select sc.tracking_list_id into v_result
+  from shopping_carts sc
+  where sc.id = p_cart_id
+    and (sc.user_id = v_user_id
+      or exists (select 1 from cart_shares cs where cs.cart_id = sc.id and cs.shared_with_user_id = v_user_id));
+  return v_result;
+end;
+$$;
+
+-- Get tracking check state (security definer for shared users)
+create or replace function public.get_tracking_check_state(p_cart_id uuid)
+returns jsonb
+language plpgsql
+security definer stable
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_result jsonb;
+begin
+  select sc.tracking_check_state into v_result
+  from shopping_carts sc
+  where sc.id = p_cart_id
+    and (sc.user_id = v_user_id
+      or exists (select 1 from cart_shares cs where cs.cart_id = sc.id and cs.shared_with_user_id = v_user_id));
+  return coalesce(v_result, '{}'::jsonb);
+end;
+$$;
+
+-- Update tracking check state (security definer for shared users)
+create or replace function public.update_tracking_check_state(p_cart_id uuid, p_state jsonb)
+returns void
+language plpgsql
+security definer
+as $$
+declare
+  v_user_id uuid := auth.uid();
+begin
+  if not exists (
+    select 1 from shopping_carts sc
+    where sc.id = p_cart_id
+      and (sc.user_id = v_user_id
+        or exists (select 1 from cart_shares cs where cs.cart_id = sc.id and cs.shared_with_user_id = v_user_id))
+  ) then
+    raise exception 'Access denied';
+  end if;
+  update shopping_carts set tracking_check_state = p_state where id = p_cart_id;
+end;
+$$;
 
 -- Validate invite code (callable by anon for signup)
 create or replace function public.validate_invite_code(invite_code text)

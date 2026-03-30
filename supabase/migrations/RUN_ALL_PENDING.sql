@@ -375,7 +375,10 @@ BEGIN
     SELECT 1 FROM shopping_lists sl
     WHERE sl.id = p_list_id
       AND (sl.user_id = v_user_id
-        OR EXISTS (SELECT 1 FROM list_shares ls WHERE ls.list_id = sl.id AND ls.shared_with_user_id = v_user_id))
+        OR EXISTS (SELECT 1 FROM list_shares ls WHERE ls.list_id = sl.id AND ls.shared_with_user_id = v_user_id)
+        OR EXISTS (SELECT 1 FROM shopping_carts sc
+                   JOIN cart_shares cs ON cs.cart_id = sc.id
+                   WHERE sc.tracking_list_id = p_list_id AND cs.shared_with_user_id = v_user_id))
   ) INTO v_has_access;
   IF NOT v_has_access THEN RETURN null; END IF;
   RETURN (SELECT row_to_json(t) FROM (SELECT id, user_id, name, created_at FROM shopping_lists WHERE id = p_list_id) t);
@@ -393,7 +396,10 @@ BEGIN
     SELECT 1 FROM shopping_lists sl
     WHERE sl.id = p_list_id
       AND (sl.user_id = v_user_id
-        OR EXISTS (SELECT 1 FROM list_shares ls WHERE ls.list_id = sl.id AND ls.shared_with_user_id = v_user_id))
+        OR EXISTS (SELECT 1 FROM list_shares ls WHERE ls.list_id = sl.id AND ls.shared_with_user_id = v_user_id)
+        OR EXISTS (SELECT 1 FROM shopping_carts sc
+                   JOIN cart_shares cs ON cs.cart_id = sc.id
+                   WHERE sc.tracking_list_id = p_list_id AND cs.shared_with_user_id = v_user_id))
   ) INTO v_has_access;
   IF NOT v_has_access THEN RETURN '[]'::jsonb; END IF;
   RETURN COALESCE((
@@ -628,6 +634,133 @@ BEGIN
     ALTER PUBLICATION supabase_realtime ADD TABLE shopping_list_items;
   END IF;
 END $$;
+
+-- === Migration: Add tracking_list_id to shopping_carts ===
+ALTER TABLE shopping_carts ADD COLUMN IF NOT EXISTS tracking_list_id uuid REFERENCES shopping_lists(id) ON DELETE SET NULL;
+
+-- Security definer RPC to update tracking list (shared users can call this)
+CREATE OR REPLACE FUNCTION update_cart_tracking_list(p_cart_id uuid, p_tracking_list_id uuid)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_user_id uuid := auth.uid();
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM shopping_carts sc
+    WHERE sc.id = p_cart_id
+      AND (sc.user_id = v_user_id
+        OR EXISTS (SELECT 1 FROM cart_shares cs WHERE cs.cart_id = sc.id AND cs.shared_with_user_id = v_user_id))
+  ) THEN
+    RAISE EXCEPTION 'Access denied';
+  END IF;
+
+  UPDATE shopping_carts SET tracking_list_id = p_tracking_list_id WHERE id = p_cart_id;
+END;
+$$;
+
+-- Security definer RPC to get cart tracking list ID (shared users can call this)
+CREATE OR REPLACE FUNCTION get_cart_tracking_list_id(p_cart_id uuid)
+RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_user_id uuid := auth.uid();
+  v_result uuid;
+BEGIN
+  SELECT sc.tracking_list_id INTO v_result
+  FROM shopping_carts sc
+  WHERE sc.id = p_cart_id
+    AND (sc.user_id = v_user_id
+      OR EXISTS (SELECT 1 FROM cart_shares cs WHERE cs.cart_id = sc.id AND cs.shared_with_user_id = v_user_id));
+  RETURN v_result;
+END;
+$$;
+
+-- === Migration 019: tracking_check_state ===
+ALTER TABLE shopping_carts
+  ADD COLUMN IF NOT EXISTS tracking_check_state jsonb NOT NULL DEFAULT '{}'::jsonb;
+
+-- Update update_cart_tracking_list to reset check state when clearing
+CREATE OR REPLACE FUNCTION public.update_cart_tracking_list(p_cart_id uuid, p_tracking_list_id uuid)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE v_user_id uuid := auth.uid();
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM shopping_carts sc WHERE sc.id = p_cart_id
+      AND (sc.user_id = v_user_id OR EXISTS (SELECT 1 FROM cart_shares cs WHERE cs.cart_id = sc.id AND cs.shared_with_user_id = v_user_id))
+  ) THEN RAISE EXCEPTION 'Access denied'; END IF;
+  UPDATE shopping_carts SET tracking_list_id = p_tracking_list_id,
+    tracking_check_state = CASE WHEN p_tracking_list_id IS NULL THEN '{}'::jsonb ELSE tracking_check_state END
+  WHERE id = p_cart_id;
+END; $$;
+
+CREATE OR REPLACE FUNCTION public.get_tracking_check_state(p_cart_id uuid)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER STABLE AS $$
+DECLARE v_user_id uuid := auth.uid(); v_result jsonb;
+BEGIN
+  SELECT sc.tracking_check_state INTO v_result FROM shopping_carts sc
+  WHERE sc.id = p_cart_id AND (sc.user_id = v_user_id
+    OR EXISTS (SELECT 1 FROM cart_shares cs WHERE cs.cart_id = sc.id AND cs.shared_with_user_id = v_user_id));
+  RETURN COALESCE(v_result, '{}'::jsonb);
+END; $$;
+
+CREATE OR REPLACE FUNCTION public.update_tracking_check_state(p_cart_id uuid, p_state jsonb)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE v_user_id uuid := auth.uid();
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM shopping_carts sc WHERE sc.id = p_cart_id
+      AND (sc.user_id = v_user_id OR EXISTS (SELECT 1 FROM cart_shares cs WHERE cs.cart_id = sc.id AND cs.shared_with_user_id = v_user_id))
+  ) THEN RAISE EXCEPTION 'Access denied'; END IF;
+  UPDATE shopping_carts SET tracking_check_state = p_state WHERE id = p_cart_id;
+END; $$;
+
+-- Also update get_list_by_id and get_list_items to allow access via tracking list on shared cart
+CREATE OR REPLACE FUNCTION public.get_list_by_id(p_list_id uuid)
+RETURNS jsonb AS $$
+DECLARE v_user_id uuid := auth.uid(); v_has_access boolean;
+BEGIN
+  SELECT EXISTS(
+    SELECT 1 FROM shopping_lists sl WHERE sl.id = p_list_id
+      AND (sl.user_id = v_user_id
+        OR EXISTS (SELECT 1 FROM list_shares ls WHERE ls.list_id = sl.id AND ls.shared_with_user_id = v_user_id)
+        OR EXISTS (SELECT 1 FROM shopping_carts sc JOIN cart_shares cs ON cs.cart_id = sc.id
+                   WHERE sc.tracking_list_id = p_list_id AND cs.shared_with_user_id = v_user_id))
+  ) INTO v_has_access;
+  IF NOT v_has_access THEN RETURN null; END IF;
+  RETURN (SELECT row_to_json(t) FROM (SELECT id, user_id, name, created_at FROM shopping_lists WHERE id = p_list_id) t);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
+
+CREATE OR REPLACE FUNCTION public.get_list_items(p_list_id uuid)
+RETURNS jsonb AS $$
+DECLARE v_user_id uuid := auth.uid(); v_has_access boolean;
+BEGIN
+  SELECT EXISTS(
+    SELECT 1 FROM shopping_lists sl WHERE sl.id = p_list_id
+      AND (sl.user_id = v_user_id
+        OR EXISTS (SELECT 1 FROM list_shares ls WHERE ls.list_id = sl.id AND ls.shared_with_user_id = v_user_id)
+        OR EXISTS (SELECT 1 FROM shopping_carts sc JOIN cart_shares cs ON cs.cart_id = sc.id
+                   WHERE sc.tracking_list_id = p_list_id AND cs.shared_with_user_id = v_user_id))
+  ) INTO v_has_access;
+  IF NOT v_has_access THEN RETURN '[]'::jsonb; END IF;
+  RETURN COALESCE((
+    SELECT jsonb_agg(row_to_json(t) ORDER BY t.created_at ASC)
+    FROM (
+      SELECT sli.id, sli.list_id, sli.product_id, sli.product_name, sli.planned_quantity, sli.created_at,
+             CASE WHEN p.id IS NOT NULL THEN jsonb_build_object('id', p.id, 'name', p.name, 'barcode', p.barcode) ELSE null END AS products,
+             pr.email AS added_by_email
+      FROM shopping_list_items sli
+      LEFT JOIN products p ON p.id = sli.product_id
+      LEFT JOIN profiles pr ON pr.id = sli.added_by
+      WHERE sli.list_id = p_list_id
+    ) t
+  ), '[]'::jsonb);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
 
 -- ============================================================
 -- DONE! All migrations applied.
