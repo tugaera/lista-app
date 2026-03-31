@@ -144,6 +144,8 @@ Master product catalog. Never deleted — use `is_active = false` to hide.
 
 Indexes: GIN trigram on `name` (fuzzy search), btree on `barcode`, btree on `category_id`.
 
+> **Performance note:** `cart_shares` and `list_shares` have indexes on `shared_with_user_id` — this column is queried by every RPC and RLS policy that checks shared membership.
+
 #### `product_entries`
 Append-only price history. Never updated; one row per purchase event.
 
@@ -278,10 +280,10 @@ All tables have RLS enabled. The following policies are enforced:
 |-------|--------|--------|--------|--------|
 | `profiles` | Own row only; admin sees all | Trigger only | Own row | — |
 | `invites` | Creator sees own; admin sees all | Admin/moderator | — | Creator (unused only) |
-| `stores` | All authenticated | All authenticated | Admin/moderator | — |
-| `categories` | All authenticated | All authenticated | Admin/moderator | — |
+| `stores` | All authenticated | Admin/moderator | Admin/moderator | — |
+| `categories` | All authenticated | Any authenticated¹ | Any authenticated¹ | — |
 | `products` | All authenticated | All authenticated | Admin/moderator | Admin/moderator |
-| `product_entries` | All authenticated | All authenticated | — | — |
+| `product_entries` | All authenticated | All authenticated | Admin/moderator | Admin/moderator |
 | `shopping_lists` | Owner only | Owner only | Owner only | Owner only |
 | `shopping_list_items` | Owner + list shared members | Owner + list shared members | Owner + list shared members | Owner + list shared members |
 | `shopping_carts` | Owner only | Owner only | Owner only | Owner only |
@@ -291,6 +293,8 @@ All tables have RLS enabled. The following policies are enforced:
 | `cart_receipt_images` | Owner only | Owner only | — | Owner only |
 
 > **Critical:** RLS returns an **empty array** (not an error) when access is denied on SELECT. Code must not treat an empty result as "no data" — it may mean "access denied". This is why shared users always go through security definer RPCs instead of direct queries.
+
+> ¹ **Categories** only has a SELECT RLS policy — insert/update are not restricted at the DB level. Mutation server actions enforce admin/moderator role at the application layer.
 
 ---
 
@@ -497,7 +501,7 @@ src/
       actions.ts          Search, price history, admin CRUD, barcode lookup
       components/
         product-search.tsx       Search with price display
-        admin-products-panel.tsx Admin CRUD with dependency check before delete
+        admin-products-panel.tsx Admin CRUD; edit modal shows full price history with add/edit/delete per entry
 
     history/
       actions.ts          Fetch finalized carts (own + shared), cart detail, price history
@@ -640,6 +644,8 @@ npm run build
 | 017 | `cart_shares_and_updated_rls.sql` | Ensure cart_shares exists, fix RLS policies |
 | 018 | `fix_all_rls_policies.sql` | Dynamic drop+recreate of all RLS policies (handles name mismatches in live DB) |
 | 019 | `tracking_check_state.sql` | tracking_check_state column, get/update_tracking_check_state RPCs, leave_shared_cart RPC, get_shared_carts_for_user RPC |
+| 020 | `020_share_indexes_and_owner_email.sql` | Indexes on `cart_shares(shared_with_user_id)` and `list_shares(shared_with_user_id)`; adds `owner_email` to `get_shared_carts_for_user` response |
+| 021 | `021_product_entries_admin_crud.sql` | RLS UPDATE and DELETE policies on `product_entries` for admin/moderator |
 
 ---
 

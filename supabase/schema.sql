@@ -158,6 +158,9 @@ create table cart_receipt_images (
 
 create index idx_cart_receipt_images_cart on cart_receipt_images(cart_id);
 
+create index idx_cart_shares_shared_with on cart_shares (shared_with_user_id);
+create index idx_list_shares_shared_with on list_shares (shared_with_user_id);
+
 -- Cart Shares
 create table cart_shares (
   id                  uuid primary key default gen_random_uuid(),
@@ -645,6 +648,7 @@ begin
       select
         sc.id as cart_id,
         cs.owner_id,
+        (select email from profiles where id = cs.owner_id) as owner_email,
         sc.total,
         sc.store_id,
         s.name as store_name
@@ -900,6 +904,14 @@ create policy "product_entries_select" on product_entries
 
 create policy "product_entries_insert" on product_entries
   for insert to authenticated with check (true);
+
+create policy "product_entries_update_admin" on product_entries
+  for update to authenticated
+  using (get_my_role() in ('admin', 'moderator'));
+
+create policy "product_entries_delete_admin" on product_entries
+  for delete to authenticated
+  using (get_my_role() in ('admin', 'moderator'));
 
 -- Shopping lists: owner CRUD + shared members can read
 create policy "shopping_lists_select" on shopping_lists

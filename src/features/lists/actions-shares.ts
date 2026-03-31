@@ -37,6 +37,9 @@ export async function shareList(
   if (!list) return { error: "List not found or not owned by you" };
 
   const normalizedEmail = email.toLowerCase().trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+    return { error: "Please enter a valid email address" };
+  }
 
   // Look up user by email (uses security definer function to bypass RLS)
   const { data: profileId } = await supabase.rpc("get_profile_id_by_email", {

@@ -309,11 +309,22 @@ export async function getAdminProducts(query: string = ""): Promise<{
   };
 }
 
+async function requireAdminOrModerator(supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>): Promise<string | null> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return "Not authenticated";
+  const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+  if (!profile || !["admin", "moderator"].includes(profile.role)) return "Insufficient permissions";
+  return null;
+}
+
 export async function adminUpdateProduct(
   productId: string,
   data: { name: string; barcode?: string; categoryId?: string },
 ): Promise<{ error?: string }> {
   const supabase = await createServerSupabaseClient();
+  const authError = await requireAdminOrModerator(supabase);
+  if (authError) return { error: authError };
+
   const name = data.name.trim();
   if (!name) return { error: "Name is required" };
 
@@ -337,6 +348,8 @@ export async function adminToggleProductActive(
   isActive: boolean,
 ): Promise<{ error?: string }> {
   const supabase = await createServerSupabaseClient();
+  const authError = await requireAdminOrModerator(supabase);
+  if (authError) return { error: authError };
 
   const { error } = await supabase
     .from("products")
@@ -401,12 +414,85 @@ export async function adminDeleteProduct(
   productId: string,
 ): Promise<{ error?: string }> {
   const supabase = await createServerSupabaseClient();
+  const authError = await requireAdminOrModerator(supabase);
+  if (authError) return { error: authError };
 
   const { error } = await supabase
     .from("products")
     .delete()
     .eq("id", productId);
 
+  if (error) return { error: error.message };
+  revalidatePath("/admin");
+  revalidatePath("/products");
+  return {};
+}
+
+// ── Admin price entry CRUD ────────────────────────────────────────────────────
+
+export type PriceEntryData = {
+  storeId: string;
+  price: number;
+  originalPrice: number | null;
+  quantity: number;
+  date: string; // ISO string
+};
+
+export async function adminAddPriceEntry(
+  productId: string,
+  data: PriceEntryData,
+): Promise<{ error?: string }> {
+  const supabase = await createServerSupabaseClient();
+  const authError = await requireAdminOrModerator(supabase);
+  if (authError) return { error: authError };
+
+  const payload: Record<string, unknown> = {
+    product_id: productId,
+    store_id: data.storeId,
+    price: data.price,
+    quantity: data.quantity,
+    created_at: data.date,
+  };
+  if (data.originalPrice != null) payload.original_price = data.originalPrice;
+
+  const { error } = await supabase.from("product_entries").insert(payload as never);
+  if (error) return { error: error.message };
+  revalidatePath("/admin");
+  revalidatePath("/products");
+  return {};
+}
+
+export async function adminUpdatePriceEntry(
+  entryId: string,
+  data: PriceEntryData,
+): Promise<{ error?: string }> {
+  const supabase = await createServerSupabaseClient();
+  const authError = await requireAdminOrModerator(supabase);
+  if (authError) return { error: authError };
+
+  const { error } = await supabase
+    .from("product_entries")
+    .update({
+      store_id: data.storeId,
+      price: data.price,
+      original_price: data.originalPrice,
+      quantity: data.quantity,
+      created_at: data.date,
+    } as never)
+    .eq("id", entryId);
+
+  if (error) return { error: error.message };
+  revalidatePath("/admin");
+  revalidatePath("/products");
+  return {};
+}
+
+export async function adminDeletePriceEntry(entryId: string): Promise<{ error?: string }> {
+  const supabase = await createServerSupabaseClient();
+  const authError = await requireAdminOrModerator(supabase);
+  if (authError) return { error: authError };
+
+  const { error } = await supabase.from("product_entries").delete().eq("id", entryId);
   if (error) return { error: error.message };
   revalidatePath("/admin");
   revalidatePath("/products");

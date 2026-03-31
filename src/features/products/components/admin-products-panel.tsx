@@ -9,15 +9,26 @@ import {
   adminDeleteProduct,
   checkProductDependencies,
   createProduct,
+  adminAddPriceEntry,
+  adminUpdatePriceEntry,
+  adminDeletePriceEntry,
+  getProductWithHistory,
   type ProductWithLatestPrice,
   type ProductDependencies,
+  type PriceEntryData,
 } from "@/features/products/actions";
-import { BarcodeScanner } from "@/features/shopping/components/barcode-scanner";
+import dynamic from "next/dynamic";
+const BarcodeScanner = dynamic(
+  () => import("@/features/shopping/components/barcode-scanner").then((m) => ({ default: m.BarcodeScanner })),
+  { ssr: false },
+);
 import { lookupBarcode } from "@/lib/barcode-lookup";
-import type { Category } from "@/types/database";
+import type { Category, ProductEntry } from "@/types/database";
+import type { Store } from "@/features/stores/actions";
 
 interface AdminProductsPanelProps {
   categories: Category[];
+  stores: Store[];
 }
 
 type EditState = {
@@ -25,6 +36,17 @@ type EditState = {
   name: string;
   barcode: string;
   categoryId: string;
+};
+
+type PriceHistoryEntry = ProductEntry & { store_name: string };
+
+type PriceForm = {
+  entryId: string | null; // null = adding new
+  storeId: string;
+  price: string;
+  originalPrice: string;
+  quantity: string;
+  date: string;
 };
 
 function Badge({ active }: { active: boolean }) {
@@ -52,7 +74,11 @@ function BarcodeIcon() {
   );
 }
 
-export function AdminProductsPanel({ categories }: AdminProductsPanelProps) {
+function todayISODate() {
+  return new Date().toISOString().slice(0, 16); // "YYYY-MM-DDTHH:MM"
+}
+
+export function AdminProductsPanel({ categories, stores }: AdminProductsPanelProps) {
   const [query, setQuery] = useState("");
   const debouncedQuery = useDebounce(query, 300);
   const [products, setProducts] = useState<ProductWithLatestPrice[]>([]);
@@ -63,6 +89,15 @@ export function AdminProductsPanel({ categories }: AdminProductsPanelProps) {
   const [editLoading, setEditLoading] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [editScanning, setEditScanning] = useState(false);
+
+  // Price history (shown inside edit modal)
+  const [priceHistory, setPriceHistory] = useState<PriceHistoryEntry[]>([]);
+  const [priceHistoryLoading, setPriceHistoryLoading] = useState(false);
+  const [priceForm, setPriceForm] = useState<PriceForm | null>(null);
+  const [priceFormLoading, setPriceFormLoading] = useState(false);
+  const [priceFormError, setPriceFormError] = useState<string | null>(null);
+  const [deletingEntryId, setDeletingEntryId] = useState<string | null>(null);
+  const [confirmDeleteEntryId, setConfirmDeleteEntryId] = useState<string | null>(null);
 
   // Add
   const [showAdd, setShowAdd] = useState(false);
@@ -109,7 +144,7 @@ export function AdminProductsPanel({ categories }: AdminProductsPanelProps) {
     });
   }
 
-  function openEdit(product: ProductWithLatestPrice) {
+  async function openEdit(product: ProductWithLatestPrice) {
     setEdit({
       id: product.id,
       name: product.name,
@@ -117,6 +152,14 @@ export function AdminProductsPanel({ categories }: AdminProductsPanelProps) {
       categoryId: product.category_id ?? "",
     });
     setEditError(null);
+    setPriceForm(null);
+    setPriceFormError(null);
+    setConfirmDeleteEntryId(null);
+    setPriceHistory([]);
+    setPriceHistoryLoading(true);
+    const { data } = await getProductWithHistory(product.id);
+    setPriceHistory((data?.entries ?? []) as PriceHistoryEntry[]);
+    setPriceHistoryLoading(false);
   }
 
   async function handleSaveEdit() {
@@ -149,6 +192,75 @@ export function AdminProductsPanel({ categories }: AdminProductsPanelProps) {
     );
     setEdit(null);
     setEditLoading(false);
+  }
+
+  function openPriceForm(entry?: PriceHistoryEntry) {
+    setPriceFormError(null);
+    if (entry) {
+      setPriceForm({
+        entryId: entry.id,
+        storeId: entry.store_id,
+        price: String(entry.price),
+        originalPrice: entry.original_price != null ? String(entry.original_price) : "",
+        quantity: String(entry.quantity),
+        date: entry.created_at.slice(0, 16),
+      });
+    } else {
+      setPriceForm({
+        entryId: null,
+        storeId: stores[0]?.id ?? "",
+        price: "",
+        originalPrice: "",
+        quantity: "1",
+        date: todayISODate(),
+      });
+    }
+  }
+
+  async function handleSavePriceEntry() {
+    if (!priceForm || !edit) return;
+    const price = parseFloat(priceForm.price);
+    const quantity = parseFloat(priceForm.quantity);
+    if (!priceForm.storeId) { setPriceFormError("Store is required"); return; }
+    if (isNaN(price) || price < 0) { setPriceFormError("Valid price is required"); return; }
+    if (isNaN(quantity) || quantity <= 0) { setPriceFormError("Valid quantity is required"); return; }
+    if (!priceForm.date) { setPriceFormError("Date is required"); return; }
+
+    setPriceFormLoading(true);
+    setPriceFormError(null);
+
+    const data: PriceEntryData = {
+      storeId: priceForm.storeId,
+      price,
+      originalPrice: priceForm.originalPrice ? parseFloat(priceForm.originalPrice) : null,
+      quantity,
+      date: new Date(priceForm.date).toISOString(),
+    };
+
+    const result = priceForm.entryId
+      ? await adminUpdatePriceEntry(priceForm.entryId, data)
+      : await adminAddPriceEntry(edit.id, data);
+
+    if (result.error) {
+      setPriceFormError(result.error);
+      setPriceFormLoading(false);
+      return;
+    }
+
+    // Reload history
+    const { data: updated } = await getProductWithHistory(edit.id);
+    setPriceHistory((updated?.entries ?? []) as PriceHistoryEntry[]);
+    setPriceForm(null);
+    setPriceFormLoading(false);
+  }
+
+  async function handleDeletePriceEntry(entryId: string) {
+    if (!edit) return;
+    setDeletingEntryId(entryId);
+    await adminDeletePriceEntry(entryId);
+    setPriceHistory((prev) => prev.filter((e) => e.id !== entryId));
+    setConfirmDeleteEntryId(null);
+    setDeletingEntryId(null);
   }
 
   async function handleAdd() {
@@ -321,11 +433,14 @@ export function AdminProductsPanel({ categories }: AdminProductsPanelProps) {
             />
           )}
           <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+            className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 py-8"
             onClick={(e) => { if (e.target === e.currentTarget) setEdit(null); }}
           >
-            <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
-              <h3 className="mb-4 text-lg font-semibold text-gray-900">Edit Product</h3>
+            <div className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl">
+              <h3 className="mb-5 text-lg font-semibold text-gray-900">Edit Product</h3>
+
+              {/* Basic Information */}
+              <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-400">Basic Information</p>
               <div className="space-y-3">
                 <div>
                   <label className="mb-1 block text-sm font-medium text-gray-700">Name *</label>
@@ -372,7 +487,190 @@ export function AdminProductsPanel({ categories }: AdminProductsPanelProps) {
                 </div>
                 {editError && <p className="text-sm text-red-600">{editError}</p>}
               </div>
-              <div className="mt-5 flex justify-end gap-2">
+
+              {/* Price History */}
+              <div className="mt-6">
+                <div className="mb-3 flex items-center justify-between">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-gray-400">Price History</p>
+                  {!priceForm && (
+                    <button
+                      type="button"
+                      onClick={() => openPriceForm()}
+                      className="rounded-lg bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:bg-emerald-700"
+                    >
+                      + Add Entry
+                    </button>
+                  )}
+                </div>
+
+                {priceHistoryLoading ? (
+                  <p className="py-4 text-center text-sm text-gray-400">Loading…</p>
+                ) : priceHistory.length === 0 && !priceForm ? (
+                  <p className="py-4 text-center text-sm text-gray-400">No price history yet.</p>
+                ) : (
+                  <div className="divide-y divide-gray-100 rounded-xl border border-gray-200 bg-gray-50">
+                    {priceHistory.map((entry) => {
+                      const hasDiscount = entry.original_price != null && entry.original_price > entry.price;
+                      const isConfirmingDelete = confirmDeleteEntryId === entry.id;
+                      const isDeleting = deletingEntryId === entry.id;
+                      return (
+                        <div key={entry.id} className="flex items-center gap-3 px-4 py-2.5 text-sm">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-medium text-gray-900">
+                                €{entry.price.toFixed(2)}
+                              </span>
+                              {hasDiscount && (
+                                <span className="text-xs text-gray-400 line-through">
+                                  €{entry.original_price!.toFixed(2)}
+                                </span>
+                              )}
+                              {entry.quantity !== 1 && (
+                                <span className="text-xs text-gray-500">×{entry.quantity}</span>
+                              )}
+                              <span className="rounded bg-gray-200 px-1.5 py-0.5 text-xs text-gray-600">
+                                {entry.store_name}
+                              </span>
+                            </div>
+                            <p className="mt-0.5 text-xs text-gray-400">
+                              {new Date(entry.created_at).toLocaleDateString(undefined, {
+                                year: "numeric", month: "short", day: "numeric",
+                              })}
+                            </p>
+                          </div>
+                          <div className="flex shrink-0 items-center gap-1.5">
+                            {isConfirmingDelete ? (
+                              <>
+                                <span className="text-xs text-red-600">Delete?</span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeletePriceEntry(entry.id)}
+                                  disabled={isDeleting}
+                                  className="rounded border border-red-300 px-2 py-0.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+                                >
+                                  {isDeleting ? "…" : "Yes"}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setConfirmDeleteEntryId(null)}
+                                  className="rounded border border-gray-200 px-2 py-0.5 text-xs font-medium text-gray-500 hover:bg-gray-50"
+                                >
+                                  No
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => { setPriceForm(null); setTimeout(() => openPriceForm(entry), 0); }}
+                                  className="rounded border border-gray-200 px-2 py-0.5 text-xs font-medium text-gray-600 hover:bg-gray-50"
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setConfirmDeleteEntryId(entry.id)}
+                                  className="rounded border border-red-200 px-2 py-0.5 text-xs font-medium text-red-600 hover:bg-red-50"
+                                >
+                                  Delete
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Add / Edit price entry form */}
+                {priceForm && (
+                  <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                    <p className="mb-3 text-sm font-medium text-emerald-800">
+                      {priceForm.entryId ? "Edit Price Entry" : "Add Price Entry"}
+                    </p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="col-span-2">
+                        <label className="mb-1 block text-xs font-medium text-gray-700">Supermarket *</label>
+                        <select
+                          value={priceForm.storeId}
+                          onChange={(e) => setPriceForm({ ...priceForm, storeId: e.target.value })}
+                          className="w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm focus:border-emerald-500 focus:outline-none"
+                        >
+                          <option value="">Select store…</option>
+                          {stores.map((s) => (
+                            <option key={s.id} value={s.id}>{s.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-gray-700">Price *</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={priceForm.price}
+                          onChange={(e) => setPriceForm({ ...priceForm, price: e.target.value })}
+                          placeholder="0.00"
+                          className="w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm focus:border-emerald-500 focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-gray-700">Original Price</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={priceForm.originalPrice}
+                          onChange={(e) => setPriceForm({ ...priceForm, originalPrice: e.target.value })}
+                          placeholder="Before discount"
+                          className="w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm focus:border-emerald-500 focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-gray-700">Quantity *</label>
+                        <input
+                          type="number"
+                          step="0.001"
+                          min="0.001"
+                          value={priceForm.quantity}
+                          onChange={(e) => setPriceForm({ ...priceForm, quantity: e.target.value })}
+                          className="w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm focus:border-emerald-500 focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-gray-700">Date *</label>
+                        <input
+                          type="datetime-local"
+                          value={priceForm.date}
+                          onChange={(e) => setPriceForm({ ...priceForm, date: e.target.value })}
+                          className="w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm focus:border-emerald-500 focus:outline-none"
+                        />
+                      </div>
+                    </div>
+                    {priceFormError && <p className="mt-2 text-xs text-red-600">{priceFormError}</p>}
+                    <div className="mt-3 flex justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => { setPriceForm(null); setPriceFormError(null); }}
+                        className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-white"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSavePriceEntry}
+                        disabled={priceFormLoading}
+                        className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+                      >
+                        {priceFormLoading ? "Saving…" : "Save Entry"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-6 flex justify-end gap-2 border-t border-gray-100 pt-4">
                 <button
                   type="button"
                   onClick={() => setEdit(null)}

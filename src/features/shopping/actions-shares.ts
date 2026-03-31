@@ -39,6 +39,10 @@ export async function shareCart(
 
   // Look up user by email (uses security definer function to bypass RLS)
   const normalizedEmail = email.toLowerCase().trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+    return { error: "Please enter a valid email address" };
+  }
+
   const { data: profileId } = await supabase.rpc("get_profile_id_by_email", {
     lookup_email: normalizedEmail,
   });
@@ -179,25 +183,16 @@ export async function getSharedWithMeCarts(): Promise<SharedWithMeCart[]> {
   const carts = (typeof rpcResult === "string" ? JSON.parse(rpcResult) : rpcResult) as Array<{
     cart_id: string;
     owner_id: string;
+    owner_email: string | null;
     total: number;
     store_name: string | null;
   }>;
 
   if (!carts || carts.length === 0) return [];
 
-  // Get owner emails
-  const ownerIds = [...new Set(carts.map((c) => c.owner_id))];
-  const ownerEmailMap: Record<string, string> = {};
-  await Promise.all(
-    ownerIds.map(async (ownerId) => {
-      const { data: email } = await supabase.rpc("get_profile_email_by_id", { user_id: ownerId });
-      if (email) ownerEmailMap[ownerId] = email;
-    }),
-  );
-
   return carts.map((c) => ({
     cartId: c.cart_id,
-    ownerEmail: ownerEmailMap[c.owner_id] ?? "",
+    ownerEmail: c.owner_email ?? "",
     total: c.total,
     storeName: c.store_name ?? null,
   }));

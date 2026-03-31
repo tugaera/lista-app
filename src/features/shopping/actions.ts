@@ -383,70 +383,81 @@ export async function finalizeCart(
     .select("id, product_id, product_name, product_barcode, price, original_price, quantity")
     .eq("cart_id", cartId);
 
-  // For items where product_id is null: find-or-create product
-  for (const item of items ?? []) {
-    let productId = item.product_id;
+  // For items where product_id is null: find-or-create product (batched)
+  const allItems = items ?? [];
+  const noProductItems = allItems.filter((item) => !item.product_id);
+  const resolvedProductIds: Record<string, string> = {}; // item.id -> product_id
 
-    if (!productId) {
-      // Try find by barcode first
-      if (item.product_barcode) {
-        const { data: byBarcode } = await supabase
-          .from("products")
-          .select("id")
-          .eq("barcode", item.product_barcode)
-          .maybeSingle();
-
-        if (byBarcode) productId = byBarcode.id;
-      }
-
-      // Try find by name
-      if (!productId) {
-        const { data: byName } = await supabase
-          .from("products")
-          .select("id")
-          .ilike("name", item.product_name)
-          .limit(1)
-          .maybeSingle();
-
-        if (byName) productId = byName.id;
-      }
-
-      // Create product if still not found
-      if (!productId) {
-        const { data: newProduct } = await supabase
-          .from("products")
-          .insert({
-            name: item.product_name,
-            barcode: item.product_barcode ?? undefined,
-          })
-          .select("id")
-          .single();
-
-        if (newProduct) productId = newProduct.id;
-      }
-
-      // Update cart item with product_id
-      if (productId) {
-        await supabase
-          .from("shopping_cart_items")
-          .update({ product_id: productId })
-          .eq("id", item.id);
+  if (noProductItems.length > 0) {
+    // Step 1: batch barcode lookup for items that have a barcode
+    const barcodedItems = noProductItems.filter((i) => i.product_barcode);
+    if (barcodedItems.length > 0) {
+      const { data: foundByBarcode } = await supabase
+        .from("products")
+        .select("id, barcode")
+        .in("barcode", barcodedItems.map((i) => i.product_barcode!));
+      const barcodeMap = new Map((foundByBarcode ?? []).map((p) => [p.barcode, p.id]));
+      for (const item of barcodedItems) {
+        const found = barcodeMap.get(item.product_barcode!);
+        if (found) resolvedProductIds[item.id] = found;
       }
     }
 
-    // Create product_entry for price history (using cart's store_id)
-    if (cart?.store_id && productId) {
-      const entryPayload: Record<string, unknown> = {
-        product_id: productId,
-        store_id: cart.store_id,
-        price: item.price,
-        quantity: item.quantity,
-      };
-      const itemOriginalPrice = (item as unknown as { original_price?: number | null }).original_price;
-      if (itemOriginalPrice != null) entryPayload.original_price = itemOriginalPrice;
-      await supabase.from("product_entries").insert(entryPayload as never);
+    // Step 2: parallel name lookups for items still unresolved
+    const nameItems = noProductItems.filter((i) => !resolvedProductIds[i.id]);
+    if (nameItems.length > 0) {
+      const nameResults = await Promise.all(
+        nameItems.map((i) =>
+          supabase.from("products").select("id, name").ilike("name", i.product_name).limit(1).maybeSingle(),
+        ),
+      );
+      for (let idx = 0; idx < nameItems.length; idx++) {
+        const found = nameResults[idx].data;
+        if (found) resolvedProductIds[nameItems[idx].id] = found.id;
+      }
+    }
+
+    // Step 3: parallel product creation for items still unresolved
+    const stillUnresolved = noProductItems.filter((i) => !resolvedProductIds[i.id]);
+    if (stillUnresolved.length > 0) {
+      await Promise.all(
+        stillUnresolved.map(async (item) => {
+          const { data: newProduct } = await supabase
+            .from("products")
+            .insert({ name: item.product_name, barcode: item.product_barcode ?? undefined })
+            .select("id")
+            .single();
+          if (newProduct) resolvedProductIds[item.id] = newProduct.id;
+        }),
+      );
     }
   }
+
+  // Step 4: update cart items + create price entries (parallel)
+  await Promise.all(
+    allItems.map(async (item) => {
+      const productId = item.product_id ?? resolvedProductIds[item.id];
+
+      if (resolvedProductIds[item.id]) {
+        await supabase
+          .from("shopping_cart_items")
+          .update({ product_id: resolvedProductIds[item.id] })
+          .eq("id", item.id);
+      }
+
+      if (cart?.store_id && productId) {
+        const entryPayload: Record<string, unknown> = {
+          product_id: productId,
+          store_id: cart.store_id,
+          price: item.price,
+          quantity: item.quantity,
+        };
+        const itemOriginalPrice = (item as unknown as { original_price?: number | null }).original_price;
+        if (itemOriginalPrice != null) entryPayload.original_price = itemOriginalPrice;
+        await supabase.from("product_entries").insert(entryPayload as never);
+      }
+    }),
+  );
 
   // Recalculate total and mark finalized
   await recalculateCartTotal(cartId);

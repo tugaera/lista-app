@@ -18,7 +18,11 @@ import {
   type ListShareInfo,
 } from "@/features/lists/actions-shares";
 import { ProductSearch, type ProductResult } from "@/features/shopping/components/product-search";
-import { BarcodeScanner } from "@/features/shopping/components/barcode-scanner";
+import dynamic from "next/dynamic";
+const BarcodeScanner = dynamic(
+  () => import("@/features/shopping/components/barcode-scanner").then((m) => ({ default: m.BarcodeScanner })),
+  { ssr: false },
+);
 import type { ShoppingList, ShoppingListItem, Product } from "@/types/database";
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
 import { createUserColorMap, getUserInitial } from "@/lib/user-colors";
