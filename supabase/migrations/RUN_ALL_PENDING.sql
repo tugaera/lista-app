@@ -817,5 +817,21 @@ BEGIN
   ), '[]'::jsonb);
 END; $$;
 
+-- === Migration 021: admin/moderator update + delete on product_entries ===
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename = 'product_entries' AND policyname = 'product_entries_update_admin'
+  ) THEN
+    CREATE POLICY "product_entries_update_admin" ON product_entries
+      FOR UPDATE TO authenticated USING (get_my_role() IN ('admin', 'moderator'));
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename = 'product_entries' AND policyname = 'product_entries_delete_admin'
+  ) THEN
+    CREATE POLICY "product_entries_delete_admin" ON product_entries
+      FOR DELETE TO authenticated USING (get_my_role() IN ('admin', 'moderator'));
+  END IF;
+END $$;
+
 -- DONE! All migrations applied.
 -- ============================================================

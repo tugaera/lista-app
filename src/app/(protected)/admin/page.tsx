@@ -38,7 +38,7 @@ export default async function AdminPage() {
         }
         storesPanel={<StoreList initialStores={storesResult.stores} />}
         productsPanel={
-          <AdminProductsPanel categories={categoriesResult.data ?? []} />
+          <AdminProductsPanel categories={categoriesResult.data ?? []} stores={storesResult.stores} />
         }
       />
     </div>

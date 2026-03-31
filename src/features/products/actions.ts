@@ -427,3 +427,74 @@ export async function adminDeleteProduct(
   revalidatePath("/products");
   return {};
 }
+
+// ── Admin price entry CRUD ────────────────────────────────────────────────────
+
+export type PriceEntryData = {
+  storeId: string;
+  price: number;
+  originalPrice: number | null;
+  quantity: number;
+  date: string; // ISO string
+};
+
+export async function adminAddPriceEntry(
+  productId: string,
+  data: PriceEntryData,
+): Promise<{ error?: string }> {
+  const supabase = await createServerSupabaseClient();
+  const authError = await requireAdminOrModerator(supabase);
+  if (authError) return { error: authError };
+
+  const payload: Record<string, unknown> = {
+    product_id: productId,
+    store_id: data.storeId,
+    price: data.price,
+    quantity: data.quantity,
+    created_at: data.date,
+  };
+  if (data.originalPrice != null) payload.original_price = data.originalPrice;
+
+  const { error } = await supabase.from("product_entries").insert(payload as never);
+  if (error) return { error: error.message };
+  revalidatePath("/admin");
+  revalidatePath("/products");
+  return {};
+}
+
+export async function adminUpdatePriceEntry(
+  entryId: string,
+  data: PriceEntryData,
+): Promise<{ error?: string }> {
+  const supabase = await createServerSupabaseClient();
+  const authError = await requireAdminOrModerator(supabase);
+  if (authError) return { error: authError };
+
+  const { error } = await supabase
+    .from("product_entries")
+    .update({
+      store_id: data.storeId,
+      price: data.price,
+      original_price: data.originalPrice,
+      quantity: data.quantity,
+      created_at: data.date,
+    } as never)
+    .eq("id", entryId);
+
+  if (error) return { error: error.message };
+  revalidatePath("/admin");
+  revalidatePath("/products");
+  return {};
+}
+
+export async function adminDeletePriceEntry(entryId: string): Promise<{ error?: string }> {
+  const supabase = await createServerSupabaseClient();
+  const authError = await requireAdminOrModerator(supabase);
+  if (authError) return { error: authError };
+
+  const { error } = await supabase.from("product_entries").delete().eq("id", entryId);
+  if (error) return { error: error.message };
+  revalidatePath("/admin");
+  revalidatePath("/products");
+  return {};
+}

@@ -905,6 +905,14 @@ create policy "product_entries_select" on product_entries
 create policy "product_entries_insert" on product_entries
   for insert to authenticated with check (true);
 
+create policy "product_entries_update_admin" on product_entries
+  for update to authenticated
+  using (get_my_role() in ('admin', 'moderator'));
+
+create policy "product_entries_delete_admin" on product_entries
+  for delete to authenticated
+  using (get_my_role() in ('admin', 'moderator'));
+
 -- Shopping lists: owner CRUD + shared members can read
 create policy "shopping_lists_select" on shopping_lists
   for select to authenticated using (
