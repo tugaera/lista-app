@@ -789,5 +789,33 @@ BEGIN
   ), '[]'::jsonb);
 END; $$;
 
+-- === Migration 020: indexes on shared_with_user_id + owner_email in get_shared_carts_for_user ===
+CREATE INDEX IF NOT EXISTS idx_cart_shares_shared_with ON cart_shares (shared_with_user_id);
+CREATE INDEX IF NOT EXISTS idx_list_shares_shared_with ON list_shares (shared_with_user_id);
+
+CREATE OR REPLACE FUNCTION public.get_shared_carts_for_user()
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER STABLE AS $$
+DECLARE
+  v_user_id uuid := auth.uid();
+BEGIN
+  RETURN coalesce((
+    SELECT jsonb_agg(row_to_json(t))
+    FROM (
+      SELECT
+        sc.id AS cart_id,
+        cs.owner_id,
+        (SELECT email FROM profiles WHERE id = cs.owner_id) AS owner_email,
+        sc.total,
+        sc.store_id,
+        s.name AS store_name
+      FROM cart_shares cs
+      JOIN shopping_carts sc ON sc.id = cs.cart_id
+      LEFT JOIN stores s ON s.id = sc.store_id
+      WHERE cs.shared_with_user_id = v_user_id
+        AND sc.finalized_at IS NULL
+    ) t
+  ), '[]'::jsonb);
+END; $$;
+
 -- DONE! All migrations applied.
 -- ============================================================

@@ -309,11 +309,22 @@ export async function getAdminProducts(query: string = ""): Promise<{
   };
 }
 
+async function requireAdminOrModerator(supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>): Promise<string | null> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return "Not authenticated";
+  const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+  if (!profile || !["admin", "moderator"].includes(profile.role)) return "Insufficient permissions";
+  return null;
+}
+
 export async function adminUpdateProduct(
   productId: string,
   data: { name: string; barcode?: string; categoryId?: string },
 ): Promise<{ error?: string }> {
   const supabase = await createServerSupabaseClient();
+  const authError = await requireAdminOrModerator(supabase);
+  if (authError) return { error: authError };
+
   const name = data.name.trim();
   if (!name) return { error: "Name is required" };
 
@@ -337,6 +348,8 @@ export async function adminToggleProductActive(
   isActive: boolean,
 ): Promise<{ error?: string }> {
   const supabase = await createServerSupabaseClient();
+  const authError = await requireAdminOrModerator(supabase);
+  if (authError) return { error: authError };
 
   const { error } = await supabase
     .from("products")
@@ -401,6 +414,8 @@ export async function adminDeleteProduct(
   productId: string,
 ): Promise<{ error?: string }> {
   const supabase = await createServerSupabaseClient();
+  const authError = await requireAdminOrModerator(supabase);
+  if (authError) return { error: authError };
 
   const { error } = await supabase
     .from("products")

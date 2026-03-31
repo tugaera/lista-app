@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
 import type { CartItemDisplay } from "@/features/shopping/actions";
 import { finalizeCart, updateCartStore } from "@/features/shopping/actions";
 import type { CartShareInfo, SharedWithMeCart } from "@/features/shopping/actions-shares";
@@ -9,7 +10,10 @@ import { shareCart, getCartShares, revokeCartShare, leaveSharedCart } from "@/fe
 import { getListWithItems } from "@/features/lists/actions";
 import { CartItemList } from "./cart-item-list";
 import { QuickAddForm } from "./quick-add-form";
-import { BarcodeScanner } from "./barcode-scanner";
+const BarcodeScanner = dynamic(
+  () => import("./barcode-scanner").then((m) => ({ default: m.BarcodeScanner })),
+  { ssr: false },
+);
 import { ListTrackingPanel, type TrackingItem, findMatchingTrackingItems } from "./list-tracking-panel";
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
 

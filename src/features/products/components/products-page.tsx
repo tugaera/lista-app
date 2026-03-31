@@ -8,7 +8,11 @@ import { Modal } from "@/components/ui/modal";
 import { Spinner } from "@/components/ui/spinner";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useDebounce } from "@/hooks/useDebounce";
-import { BarcodeScanner } from "@/features/shopping/components/barcode-scanner";
+import dynamic from "next/dynamic";
+const BarcodeScanner = dynamic(
+  () => import("@/features/shopping/components/barcode-scanner").then((m) => ({ default: m.BarcodeScanner })),
+  { ssr: false },
+);
 import { lookupBarcode } from "@/lib/barcode-lookup";
 import {
   searchProducts,

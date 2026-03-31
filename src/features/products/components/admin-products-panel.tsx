@@ -12,7 +12,11 @@ import {
   type ProductWithLatestPrice,
   type ProductDependencies,
 } from "@/features/products/actions";
-import { BarcodeScanner } from "@/features/shopping/components/barcode-scanner";
+import dynamic from "next/dynamic";
+const BarcodeScanner = dynamic(
+  () => import("@/features/shopping/components/barcode-scanner").then((m) => ({ default: m.BarcodeScanner })),
+  { ssr: false },
+);
 import { lookupBarcode } from "@/lib/barcode-lookup";
 import type { Category } from "@/types/database";
 

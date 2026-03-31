@@ -3,6 +3,14 @@
 import { revalidatePath } from "next/cache";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
+async function requireAdminOrModerator(supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>): Promise<string | null> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return "Not authenticated";
+  const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+  if (!profile || !["admin", "moderator"].includes(profile.role)) return "Insufficient permissions";
+  return null;
+}
+
 export type Store = {
   id: string;
   name: string;
@@ -29,6 +37,9 @@ export async function createStore(
   formData: FormData,
 ): Promise<{ error: string }> {
   const supabase = await createServerSupabaseClient();
+  const authError = await requireAdminOrModerator(supabase);
+  if (authError) return { error: authError };
+
   const name = (formData.get("name") as string)?.trim();
 
   if (!name) return { error: "Store name is required" };
@@ -49,6 +60,9 @@ export async function updateStoreName(
   name: string,
 ): Promise<{ error?: string }> {
   const supabase = await createServerSupabaseClient();
+  const authError = await requireAdminOrModerator(supabase);
+  if (authError) return { error: authError };
+
   const trimmed = name.trim();
   if (!trimmed) return { error: "Store name cannot be empty" };
 
@@ -71,6 +85,8 @@ export async function updateStoreSortOrder(
   sortOrder: number | null,
 ): Promise<{ error?: string }> {
   const supabase = await createServerSupabaseClient();
+  const authError = await requireAdminOrModerator(supabase);
+  if (authError) return { error: authError };
 
   const { error } = await supabase
     .from("stores")
@@ -87,6 +103,8 @@ export async function toggleStoreActive(
   isActive: boolean,
 ): Promise<{ error?: string }> {
   const supabase = await createServerSupabaseClient();
+  const authError = await requireAdminOrModerator(supabase);
+  if (authError) return { error: authError };
 
   const { error } = await supabase
     .from("stores")
