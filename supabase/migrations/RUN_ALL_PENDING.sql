@@ -836,5 +836,12 @@ END $$;
 -- === Migration 022: language preference on profiles ===
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS language TEXT NOT NULL DEFAULT 'pt';
 
+-- === Migration 023: fix product_entries update policy (add WITH CHECK) ===
+DROP POLICY IF EXISTS "product_entries_update_admin" ON product_entries;
+CREATE POLICY "product_entries_update_admin" ON product_entries
+  FOR UPDATE TO authenticated
+  USING (get_my_role() IN ('admin', 'moderator'))
+  WITH CHECK (get_my_role() IN ('admin', 'moderator'));
+
 -- DONE! All migrations applied.
 -- ============================================================

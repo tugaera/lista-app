@@ -470,18 +470,28 @@ export async function adminUpdatePriceEntry(
   const authError = await requireAdminOrModerator(supabase);
   if (authError) return { error: authError };
 
-  const { error } = await supabase
+  const payload: Record<string, unknown> = {
+    store_id: data.storeId,
+    price: data.price,
+    quantity: data.quantity,
+    created_at: data.date,
+  };
+  if (data.originalPrice != null) {
+    payload.original_price = data.originalPrice;
+  } else {
+    payload.original_price = null;
+  }
+
+  const { data: updated, error } = await supabase
     .from("product_entries")
-    .update({
-      store_id: data.storeId,
-      price: data.price,
-      original_price: data.originalPrice,
-      quantity: data.quantity,
-      created_at: data.date,
-    } as never)
-    .eq("id", entryId);
+    .update(payload as never)
+    .eq("id", entryId)
+    .select("id");
 
   if (error) return { error: error.message };
+  if (!updated || updated.length === 0) {
+    return { error: "Update failed — entry not found or permission denied" };
+  }
   revalidatePath("/admin");
   revalidatePath("/products");
   return {};

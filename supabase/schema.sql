@@ -908,7 +908,8 @@ create policy "product_entries_insert" on product_entries
 
 create policy "product_entries_update_admin" on product_entries
   for update to authenticated
-  using (get_my_role() in ('admin', 'moderator'));
+  using (get_my_role() in ('admin', 'moderator'))
+  with check (get_my_role() in ('admin', 'moderator'));
 
 create policy "product_entries_delete_admin" on product_entries
   for delete to authenticated
