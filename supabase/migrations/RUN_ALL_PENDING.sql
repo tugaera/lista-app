@@ -836,5 +836,70 @@ END $$;
 -- === Migration 022: language preference on profiles ===
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS language TEXT NOT NULL DEFAULT 'pt';
 
+-- === Migration 023: fix product_entries update policy (add WITH CHECK) ===
+DROP POLICY IF EXISTS "product_entries_update_admin" ON product_entries;
+CREATE POLICY "product_entries_update_admin" ON product_entries
+  FOR UPDATE TO authenticated
+  USING (get_my_role() IN ('admin', 'moderator'))
+  WITH CHECK (get_my_role() IN ('admin', 'moderator'));
+
+-- === Migration 024: RPCs for shared users to view finalized cart history ===
+
+CREATE OR REPLACE FUNCTION public.get_shared_finalized_carts()
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER STABLE AS $$
+DECLARE
+  v_user_id uuid := auth.uid();
+BEGIN
+  RETURN COALESCE((
+    SELECT jsonb_agg(row_to_json(t) ORDER BY t.finalized_at DESC)
+    FROM (
+      SELECT
+        sc.id,
+        sc.user_id,
+        sc.total,
+        sc.receipt_image_url,
+        sc.created_at,
+        sc.finalized_at,
+        sc.store_id,
+        s.name AS store_name,
+        pr.email AS owner_email,
+        (SELECT count(*) FROM shopping_cart_items sci WHERE sci.cart_id = sc.id) AS item_count
+      FROM cart_shares cs
+      JOIN shopping_carts sc ON sc.id = cs.cart_id
+      LEFT JOIN stores s ON s.id = sc.store_id
+      LEFT JOIN profiles pr ON pr.id = sc.user_id
+      WHERE cs.shared_with_user_id = v_user_id
+        AND sc.finalized_at IS NOT NULL
+    ) t
+  ), '[]'::jsonb);
+END; $$;
+
+CREATE OR REPLACE FUNCTION public.get_cart_by_id(p_cart_id uuid)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER STABLE AS $$
+DECLARE
+  v_user_id uuid := auth.uid();
+  v_has_access boolean;
+BEGIN
+  SELECT EXISTS(
+    SELECT 1 FROM shopping_carts sc
+    WHERE sc.id = p_cart_id
+      AND (sc.user_id = v_user_id
+        OR EXISTS (SELECT 1 FROM cart_shares cs WHERE cs.cart_id = sc.id AND cs.shared_with_user_id = v_user_id))
+  ) INTO v_has_access;
+
+  IF NOT v_has_access THEN RETURN NULL; END IF;
+
+  RETURN (
+    SELECT row_to_json(t)
+    FROM (
+      SELECT sc.id, sc.user_id, sc.total, sc.receipt_image_url, sc.created_at, sc.finalized_at, sc.store_id,
+             s.name AS store_name
+      FROM shopping_carts sc
+      LEFT JOIN stores s ON s.id = sc.store_id
+      WHERE sc.id = p_cart_id
+    ) t
+  );
+END; $$;
+
 -- DONE! All migrations applied.
 -- ============================================================

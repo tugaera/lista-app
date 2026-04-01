@@ -4,10 +4,18 @@ import { useState } from "react";
 import { useUser } from "./user-provider";
 import { useT } from "@/i18n/i18n-provider";
 import { updateLanguage, changePassword } from "../actions";
+import { InviteForm } from "./invite-form";
+import { InviteList } from "./invite-list";
 import { localeNames, type Locale } from "@/i18n";
+import type { Invite } from "@/types/database";
 
-export function ProfilePage() {
-  const { profile } = useUser();
+interface ProfilePageProps {
+  invites?: Invite[];
+  invitedUsers?: { id: string; email: string; created_at: string }[];
+}
+
+export function ProfilePage({ invites, invitedUsers = [] }: ProfilePageProps) {
+  const { profile, isAdminOrModerator } = useUser();
   const { t, locale, setLocale } = useT();
 
   // Password change
@@ -116,7 +124,7 @@ export function ProfilePage() {
       </section>
 
       {/* Change Password */}
-      <section className="rounded-2xl border border-gray-200 bg-white p-5">
+      <section className="mb-6 rounded-2xl border border-gray-200 bg-white p-5">
         <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-gray-400">
           {t("profile.changePassword")}
         </h2>
@@ -160,6 +168,22 @@ export function ProfilePage() {
           </button>
         </div>
       </section>
+
+      {/* Invites section — admin/moderator only */}
+      {isAdminOrModerator && invites && (
+        <>
+          <section className="mb-6">
+            <InviteForm />
+          </section>
+
+          <section className="mb-6">
+            <InviteList
+              invites={invites}
+              usedByEmails={Object.fromEntries(invitedUsers.map((u) => [u.id, u.email]))}
+            />
+          </section>
+        </>
+      )}
     </div>
   );
 }

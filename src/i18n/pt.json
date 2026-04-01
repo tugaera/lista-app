@@ -71,6 +71,7 @@
   "profile.passwordTooShort": "A palavra-passe deve ter pelo menos 6 caracteres",
   "profile.currentPasswordRequired": "A palavra-passe atual é obrigatória",
   "profile.currentPasswordIncorrect": "A palavra-passe atual está incorreta",
+  "profile.invitedUsers": "Pessoas que convidou",
   "profile.account": "Conta",
   "profile.preferences": "Preferências",
   "profile.email": "Email",

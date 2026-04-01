@@ -63,62 +63,34 @@ export async function getCartHistory(): Promise<{
     };
   });
 
-  // Shared finalized carts
-  const { data: shares } = await supabase
-    .from("cart_shares")
-    .select("cart_id, owner_id")
-    .eq("shared_with_user_id", user.id);
+  // Shared finalized carts — use security definer RPC to bypass owner-only RLS
+  const { data: sharedRpc } = await supabase.rpc("get_shared_finalized_carts");
+  const sharedRows = (sharedRpc ?? []) as Array<{
+    id: string;
+    user_id: string;
+    total: number;
+    receipt_image_url: string | null;
+    created_at: string;
+    finalized_at: string | null;
+    store_id: string | null;
+    store_name: string | null;
+    owner_email: string | null;
+    item_count: number;
+  }>;
 
-  const sharedCartsFormatted: CartHistoryEntry[] = [];
-
-  if (shares && shares.length > 0) {
-    const cartIds = shares.map((s) => s.cart_id);
-    const ownerIds = [...new Set(shares.map((s) => s.owner_id))];
-
-    const { data: sharedCarts } = await supabase
-      .from("shopping_carts")
-      .select(
-        "id, user_id, total, receipt_image_url, created_at, finalized_at, store_id, stores ( name ), shopping_cart_items ( id )",
-      )
-      .in("id", cartIds)
-      .not("finalized_at", "is", null);
-
-    // Get owner emails from profiles
-    const { data: ownerProfiles } = await supabase
-      .from("profiles")
-      .select("id, email")
-      .in("id", ownerIds);
-
-    const ownerEmailMap: Record<string, string> = {};
-    for (const p of ownerProfiles ?? []) {
-      ownerEmailMap[p.id] = p.email;
-    }
-
-    const shareOwnerMap: Record<string, string> = {};
-    for (const s of shares) {
-      shareOwnerMap[s.cart_id] = s.owner_id;
-    }
-
-    for (const cart of sharedCarts ?? []) {
-      const ownerId = shareOwnerMap[cart.id];
-      const store = cart.stores as unknown as { name: string } | null;
-      sharedCartsFormatted.push({
-        id: cart.id,
-        user_id: cart.user_id,
-        total: Number(cart.total),
-        receipt_image_url: cart.receipt_image_url,
-        created_at: cart.created_at,
-        finalized_at: cart.finalized_at,
-        store_id: cart.store_id,
-        store_name: store?.name ?? null,
-        item_count: Array.isArray(cart.shopping_cart_items)
-          ? cart.shopping_cart_items.length
-          : 0,
-        is_shared: true,
-        owner_email: ownerEmailMap[ownerId] ?? null,
-      });
-    }
-  }
+  const sharedCartsFormatted: CartHistoryEntry[] = sharedRows.map((cart) => ({
+    id: cart.id,
+    user_id: cart.user_id,
+    total: Number(cart.total),
+    receipt_image_url: cart.receipt_image_url,
+    created_at: cart.created_at,
+    finalized_at: cart.finalized_at,
+    store_id: cart.store_id,
+    store_name: cart.store_name,
+    item_count: Number(cart.item_count),
+    is_shared: true,
+    owner_email: cart.owner_email,
+  }));
 
   // Merge and sort by finalized_at descending
   const allCarts = [...ownCartsFormatted, ...sharedCartsFormatted].sort(
@@ -140,50 +112,57 @@ export async function getCartDetail(cartId: string) {
     redirect("/auth/login");
   }
 
-  // Try own cart first
-  let { data: cart, error: cartError } = await supabase
+  // Try own cart first (direct query works for owner via RLS)
+  let { data: cart } = await supabase
     .from("shopping_carts")
     .select("id, user_id, total, receipt_image_url, created_at")
     .eq("id", cartId)
     .eq("user_id", user.id)
     .single();
 
-  // If not own cart, check if shared with this user
+  // If not own cart, use security definer RPC to check shared access
   if (!cart) {
-    const { data: share } = await supabase
-      .from("cart_shares")
-      .select("cart_id")
-      .eq("cart_id", cartId)
-      .eq("shared_with_user_id", user.id)
-      .maybeSingle();
-
-    if (share) {
-      const result = await supabase
-        .from("shopping_carts")
-        .select("id, user_id, total, receipt_image_url, created_at")
-        .eq("id", cartId)
-        .single();
-      cart = result.data;
-      cartError = result.error;
+    const { data: rpcCart } = await supabase.rpc("get_cart_by_id", { p_cart_id: cartId });
+    if (rpcCart) {
+      const c = rpcCart as { id: string; user_id: string; total: number; receipt_image_url: string | null; created_at: string };
+      cart = { id: c.id, user_id: c.user_id, total: c.total, receipt_image_url: c.receipt_image_url, created_at: c.created_at };
     }
   }
 
-  if (cartError || !cart) {
-    return {
-      error: cartError?.message || "Cart not found",
-      cart: null,
-      items: [],
-    };
+  if (!cart) {
+    return { error: "Cart not found", cart: null, items: [] };
   }
 
-  const { data: items, error: itemsError } = await supabase
+  // Try direct query for items (works for owner)
+  let { data: items } = await supabase
     .from("shopping_cart_items")
     .select("id, cart_id, product_id, price, original_price, quantity, created_at, products ( name )")
     .eq("cart_id", cartId)
     .order("created_at", { ascending: true });
 
-  if (itemsError) {
-    return { error: itemsError.message, cart, items: [] };
+  // If empty (could be RLS blocking shared user), use RPC
+  if (!items || items.length === 0) {
+    const { data: rpcItems } = await supabase.rpc("get_cart_items", { p_cart_id: cartId });
+    const rpcRows = (rpcItems ?? []) as Array<{
+      id: string;
+      product_id: string | null;
+      product_name: string;
+      product_barcode: string | null;
+      price: number;
+      original_price: number | null;
+      quantity: number;
+      created_at: string;
+    }>;
+    items = rpcRows.map((r) => ({
+      id: r.id,
+      cart_id: cartId,
+      product_id: r.product_id,
+      price: r.price,
+      original_price: r.original_price,
+      quantity: r.quantity,
+      created_at: r.created_at,
+      products: r.product_name ? { name: r.product_name } : null,
+    })) as typeof items;
   }
 
   return { cart, items: items ?? [] };

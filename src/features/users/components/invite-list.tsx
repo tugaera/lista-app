@@ -22,7 +22,7 @@ function canDelete(invite: Invite): boolean {
   return !invite.used_by;
 }
 
-export function InviteList({ invites: initialInvites }: { invites: Invite[] }) {
+export function InviteList({ invites: initialInvites, usedByEmails = {} }: { invites: Invite[]; usedByEmails?: Record<string, string> }) {
   const { t } = useT();
   const [invites, setInvites] = useState(initialInvites);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
@@ -75,6 +75,11 @@ export function InviteList({ invites: initialInvites }: { invites: Invite[] }) {
                     <> &middot; {t("admin.used")} {new Date(invite.used_at).toLocaleDateString()}</>
                   )}
                 </p>
+                {invite.used_by && usedByEmails[invite.used_by] && (
+                  <p className="mt-0.5 text-xs text-emerald-600">
+                    → {usedByEmails[invite.used_by]}
+                  </p>
+                )}
               </div>
               <div className="flex items-center gap-2">
                 <span
