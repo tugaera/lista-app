@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Generate PWA Icons - Meu Cesto</title>
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      max-width: 600px;
+      margin: 40px auto;
+      padding: 20px;
+      background: #f9fafb;
+      color: #111827;
+    }
+    h1 { color: #059669; }
+    .preview { display: flex; gap: 24px; align-items: flex-end; margin: 24px 0; }
+    canvas { border: 1px solid #d1fae5; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+    button {
+      display: inline-block;
+      margin: 8px 8px 8px 0;
+      padding: 10px 20px;
+      background: #059669;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 15px;
+      font-weight: 600;
+    }
+    button:hover { background: #047857; }
+    .instructions {
+      background: #ecfdf5;
+      border: 1px solid #6ee7b7;
+      border-radius: 8px;
+      padding: 16px;
+      margin-top: 24px;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+    .instructions code {
+      background: #d1fae5;
+      padding: 1px 5px;
+      border-radius: 4px;
+      font-family: monospace;
+    }
+    label { font-size: 12px; color: #6b7280; display: block; margin-top: 4px; text-align: center; }
+  </style>
+</head>
+<body>
+  <h1>Meu Cesto — PWA Icon Generator</h1>
+  <p>Click the buttons below to download the PNG icons for your PWA manifest.</p>
+
+  <div class="preview">
+    <div>
+      <canvas id="canvas192" width="192" height="192"></canvas>
+      <label>192×192</label>
+    </div>
+    <div>
+      <canvas id="canvas512" width="512" height="512" style="width:128px;height:128px;"></canvas>
+      <label>512×512 (scaled)</label>
+    </div>
+  </div>
+
+  <button onclick="download(192)">Download icon-192x192.png</button>
+  <button onclick="download(512)">Download icon-512x512.png</button>
+
+  <div class="instructions">
+    <strong>After downloading:</strong>
+    <ol>
+      <li>Move both files to <code>C:\lista-app\public\</code></li>
+      <li>Your <code>manifest.json</code> should reference them as:<br>
+        <code>"/icon-192x192.png"</code> and <code>"/icon-512x512.png"</code>
+      </li>
+      <li>The SVG icons (<code>favicon.svg</code>, <code>icon.svg</code>) are already in <code>public\</code></li>
+    </ol>
+  </div>
+
+  <script>
+    const EMERALD = '#059669';
+
+    function drawBasket(ctx, size) {
+      const s = size / 32; // scale factor relative to 32px design grid
+
+      ctx.clearRect(0, 0, size, size);
+
+      // Background rounded rectangle
+      const r = 6 * s;
+      ctx.beginPath();
+      ctx.moveTo(r, 0);
+      ctx.lineTo(size - r, 0);
+      ctx.quadraticCurveTo(size, 0, size, r);
+      ctx.lineTo(size, size - r);
+      ctx.quadraticCurveTo(size, size, size - r, size);
+      ctx.lineTo(r, size);
+      ctx.quadraticCurveTo(0, size, 0, size - r);
+      ctx.lineTo(0, r);
+      ctx.quadraticCurveTo(0, 0, r, 0);
+      ctx.closePath();
+      ctx.fillStyle = EMERALD;
+      ctx.fill();
+
+      // Handle arc
+      ctx.beginPath();
+      ctx.arc(size / 2, 14.5 * s, 6 * s, Math.PI, 0, false);
+      ctx.strokeStyle = 'white';
+      ctx.lineWidth = 2.2 * s;
+      ctx.lineCap = 'round';
+      ctx.stroke();
+
+      // Basket body
+      const bx = 5 * s, by = 14 * s, bw = 22 * s, bh = 13 * s, br = 2.5 * s;
+      ctx.beginPath();
+      ctx.moveTo(bx + br, by);
+      ctx.lineTo(bx + bw - br, by);
+      ctx.quadraticCurveTo(bx + bw, by, bx + bw, by + br);
+      ctx.lineTo(bx + bw, by + bh - br);
+      ctx.quadraticCurveTo(bx + bw, by + bh, bx + bw - br, by + bh);
+      ctx.lineTo(bx + br, by + bh);
+      ctx.quadraticCurveTo(bx, by + bh, bx, by + bh - br);
+      ctx.lineTo(bx, by + br);
+      ctx.quadraticCurveTo(bx, by, bx + br, by);
+      ctx.closePath();
+      ctx.fillStyle = 'white';
+      ctx.fill();
+
+      // Weave lines
+      ctx.strokeStyle = EMERALD;
+      ctx.lineWidth = 0.9 * s;
+      ctx.globalAlpha = 0.35;
+
+      // Horizontal
+      [18.5, 23].forEach(y => {
+        ctx.beginPath();
+        ctx.moveTo(bx, y * s);
+        ctx.lineTo(bx + bw, y * s);
+        ctx.stroke();
+      });
+
+      // Vertical
+      [11, 16, 21].forEach(x => {
+        ctx.beginPath();
+        ctx.moveTo(x * s, by);
+        ctx.lineTo(x * s, by + bh);
+        ctx.stroke();
+      });
+
+      ctx.globalAlpha = 1;
+    }
+
+    function download(size) {
+      const canvas = document.getElementById('canvas' + size);
+      const link = document.createElement('a');
+      link.download = `icon-${size}x${size}.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    }
+
+    // Draw on page load
+    drawBasket(document.getElementById('canvas192').getContext('2d'), 192);
+    drawBasket(document.getElementById('canvas512').getContext('2d'), 512);
+  </script>
+</body>
+</html>

@@ -1,6 +1,6 @@
-# Lista App
+# Meu Cesto
 
-A collaborative shopping list and cart management system with real-time sync, barcode scanning, price tracking, and offline support.
+A collaborative shopping list and cart management system with real-time sync, barcode scanning, price tracking, i18n (EN/PT), and offline support.
 
 ## Tech Stack
 
@@ -11,6 +11,7 @@ A collaborative shopping list and cart management system with real-time sync, ba
 | Database | Supabase (PostgreSQL + Auth + Realtime + Storage) |
 | Offline / PWA | Serwist (service worker), Dexie (IndexedDB) |
 | AI (optional) | Anthropic Claude SDK, OpenAI SDK (receipt scanning) |
+| i18n | Custom lightweight system (JSON files, React context) |
 | Monitoring | Vercel Analytics, Vercel Speed Insights |
 | Language | TypeScript 6 |
 
@@ -20,10 +21,12 @@ A collaborative shopping list and cart management system with real-time sync, ba
 - **Shopping Lists** — plan purchases, link products or add free-text items, track quantities
 - **Real-time Collaboration** — share carts and lists with other users; items sync instantly via Supabase Realtime broadcast
 - **List Tracking on Cart** — attach a shopping list to a cart to see what still needs to be bought, with auto-matching and manual check/uncheck; check state persists across refreshes for all participants
-- **Price History** — every finalized purchase creates an append-only price entry; view trends per product per store
+- **Price History** — every finalized purchase creates an append-only price entry; view trends per product per store; admin/moderator can add/edit/delete price entries
 - **Barcode Scanning** — scan barcodes to look up products (local DB + Open Food Facts API)
 - **Discount Tracking** — original price vs final price, percentage/amount calculation
-- **Role-based Access** — admin, moderator, user roles with invite-code signup
+- **Role-based Access** — admin, moderator, user roles with invite-code signup; defense-in-depth role checks in server actions
+- **i18n (Internationalization)** — English and Portuguese; language preference stored per user in database
+- **Profile Page** — change language preference and password
 - **PWA / Offline** — installable app, offline page caching, queued mutations sync on reconnect
 - **Receipt Upload** — attach photos to cart history; optional AI-powered receipt OCR
 - **Cart Switcher** — switch between your own cart and carts shared with you; leave shared carts
@@ -38,6 +41,7 @@ Browser (React 19)
   |-- Server Components  (SSR, initial data fetching)
   |-- Server Actions     (mutations, business logic)
   |-- Client Components  (interactivity, realtime subscriptions)
+  |-- I18nProvider        (React context for translations)
   |
 Supabase
   |-- PostgreSQL         (tables, views, RLS, security definer functions)
@@ -53,6 +57,25 @@ Direct Supabase queries work for data the current user **owns**. For **shared** 
 Standard pattern throughout the codebase:
 1. Try direct query first (fast path — works for owners)
 2. If result is empty/null and user may be a shared member, fall back to the appropriate security definer RPC
+
+### i18n Architecture
+
+Custom lightweight translation system (no external i18n library):
+
+```
+src/i18n/
+  en.json          English translations (~200 keys)
+  pt.json          Portuguese translations
+  index.ts         Locale type, TranslationKey type, translate() function
+  i18n-provider.tsx  React context: useT() hook → { locale, t, setLocale }
+```
+
+- **Locale type:** `"en" | "pt"`
+- **TranslationKey:** derived from `keyof typeof en.json` (type-safe keys)
+- **Language preference:** stored in `profiles.language` column (default: `"pt"`)
+- **Protected layout** wraps children with `<I18nProvider initialLocale={userLocale}>`
+- **Auth layout** wraps with `<I18nProvider initialLocale="pt">` (no user session yet)
+- All client components use `const { t } = useT()` for translated strings
 
 ---
 
@@ -93,6 +116,7 @@ Extends `auth.users`. Auto-created by the `handle_new_user` trigger on signup.
 | id | uuid PK | matches auth.users(id), cascade delete |
 | email | text NOT NULL UNIQUE | |
 | role | enum (admin, moderator, user) | default: user |
+| language | text NOT NULL | default: 'pt'; user's preferred locale |
 | invited_by | uuid FK → profiles(id) | nullable |
 | created_at | timestamptz | |
 
@@ -147,7 +171,7 @@ Indexes: GIN trigram on `name` (fuzzy search), btree on `barcode`, btree on `cat
 > **Performance note:** `cart_shares` and `list_shares` have indexes on `shared_with_user_id` — this column is queried by every RPC and RLS policy that checks shared membership.
 
 #### `product_entries`
-Append-only price history. Never updated; one row per purchase event.
+Append-only price history. One row per purchase event. Admin/moderator can also add/edit/delete entries.
 
 | Column | Type | Notes |
 |--------|------|-------|
@@ -321,7 +345,7 @@ All functions run as the database owner, bypassing RLS. Each performs its own ac
 | `update_cart_item(item_id, cart_id, updates)` | void | Update item fields |
 | `delete_cart_item(item_id, cart_id)` | void | Remove item |
 | `recalculate_cart_total(cart_id)` | void | Recompute and save total |
-| `get_shared_carts_for_user()` | jsonb | All non-finalized carts shared with current user (joins cart_shares + shopping_carts, bypasses owner-only RLS) |
+| `get_shared_carts_for_user()` | jsonb | All non-finalized carts shared with current user (includes `owner_email` inline to avoid N+1) |
 | `leave_shared_cart(cart_id)` | void | Delete current user's own cart_share row (RLS only allows owner to delete) |
 
 #### List Data (shared user access)
@@ -360,6 +384,8 @@ All functions run as the database owner, bypassing RLS. Each performs its own ac
 
 New users must sign up with a valid invite code. The invite has an `assigned_role` set by the admin at creation time. Unregistered emails are rejected when sharing.
 
+Server actions that mutate admin/moderator-only data (stores, products, product_entries) include application-layer role checks via `requireAdminOrModerator()` for defense-in-depth on top of RLS.
+
 ---
 
 ## Key Business Logic
@@ -378,13 +404,14 @@ When adding an item to a cart (owner or shared user):
 
 Only the cart owner can check out. Steps:
 1. Fetch all cart items
-2. For each item without `product_id`: find existing product by barcode/name, or create a new one
-3. If cart has a `store_id`: create a `product_entry` row for each item (price history record)
-4. Update each cart item's `product_id`
-5. Set `finalized_at` timestamp
-6. Recalculate total
-7. The cart moves to history. Next visit to `/shopping` auto-creates a fresh active cart.
-8. All shared users can view the finalized cart in their history.
+2. Batch lookup: collect all barcodes → single `.in()` query for existing products
+3. For each item without `product_id`: find existing product by barcode/name, or create a new one (parallel name lookups via `Promise.all()`)
+4. If cart has a `store_id`: create a `product_entry` row for each item (price history record)
+5. Update each cart item's `product_id`
+6. Set `finalized_at` timestamp
+7. Recalculate total
+8. The cart moves to history. Next visit to `/shopping` auto-creates a fresh active cart.
+9. All shared users can view the finalized cart in their history.
 
 ### List Tracking on Cart
 
@@ -402,7 +429,7 @@ Any user (owner or shared) can attach a shopping list — including lists shared
 ### Sharing & Collaboration
 
 **Share by email:**
-- Owner enters a registered email address
+- Owner enters a registered email address (validated with regex before lookup)
 - `get_profile_id_by_email` RPC looks up the user (bypasses RLS on profiles)
 - Unregistered emails are rejected with an error
 - Creates a `cart_shares` / `list_shares` row
@@ -463,7 +490,7 @@ src/
       login/              Login page
       signup/             Signup with invite code (?code= param)
       callback/           Supabase auth callback
-    (protected)/          Auth-guarded layout (Sidebar + BottomNav + UserProvider)
+    (protected)/          Auth-guarded layout (Sidebar + BottomNav + UserProvider + I18nProvider)
       shopping/           Active shopping cart page
       shopping/join/[cartId]/   Join shared cart by URL
       lists/              Shopping lists directory
@@ -473,12 +500,19 @@ src/
       history/            Purchase history (finalized carts)
       history/[id]/       Cart detail view
       admin/              Admin panel (users, invites, stores, products)
+      profile/            User profile (language, password)
     sw.ts                 Service worker entry point (Serwist)
     layout.tsx            Root layout
 
+  i18n/
+    en.json               English translations (~200 keys)
+    pt.json               Portuguese translations
+    index.ts              Locale type, TranslationKey type, translate() function
+    i18n-provider.tsx     React context provider with useT() hook
+
   features/
     shopping/
-      actions.ts          Cart CRUD: add/remove/update items, finalize, deduplication
+      actions.ts          Cart CRUD: add/remove/update items, finalize (batched), deduplication
       actions-shares.ts   Cart sharing: share, revoke, leave, join, get shared carts
       actions-receipt.ts  Receipt image upload/management
       components/
@@ -487,7 +521,8 @@ src/
         quick-add-form.tsx      Add item form (barcode scan + text input)
         discount-modal.tsx      Discount calculation modal
         list-tracking-panel.tsx Tracking panel (matched/unmatched items, multi-match modal)
-        barcode-scanner.tsx     Camera barcode scanner
+        barcode-scanner.tsx     Camera barcode scanner (dynamically imported)
+        receipt-scanner.tsx     Receipt photo upload and AI OCR
 
     lists/
       actions.ts          List CRUD: create/delete lists, add/remove/update items
@@ -498,10 +533,11 @@ src/
         list-detail.tsx   List detail with realtime collab and sharing panel
 
     products/
-      actions.ts          Search, price history, admin CRUD, barcode lookup
+      actions.ts          Search, price history, admin CRUD (with role checks), barcode lookup
       components/
         product-search.tsx       Search with price display
-        admin-products-panel.tsx Admin CRUD; edit modal shows full price history with add/edit/delete per entry
+        products-page.tsx        Product catalog with add product modal
+        admin-products-panel.tsx Admin CRUD; edit modal with price history add/edit/delete
 
     history/
       actions.ts          Fetch finalized carts (own + shared), cart detail, price history
@@ -513,14 +549,15 @@ src/
         import-receipt-modal.tsx AI-powered receipt OCR import
 
     stores/
-      actions.ts          Store CRUD (name, is_active, sort_order)
+      actions.ts          Store CRUD with role checks (name, is_active, sort_order)
       components/
         store-list.tsx    Admin store management
 
     users/
-      actions.ts          User management, invite creation/deletion, role changes
+      actions.ts          User management, invite creation/deletion, role changes, language update, password change
       components/
         user-provider.tsx  React context for current auth user
+        profile-page.tsx   Profile page (language switcher, password change)
         invite-form.tsx    Create invite with email + role
         invite-list.tsx    List and delete invites
         user-list.tsx      All users with role display
@@ -542,19 +579,27 @@ src/
       openai.ts           OpenAI-based receipt OCR
       index.ts            Provider selection (prefers Anthropic, falls back to OpenAI)
       types.ts            Shared AI response types
+    offline/
+      db.ts               MeuCestoOfflineDB (Dexie IndexedDB wrapper)
     user-colors.ts        10-color palette for shared user avatars
 
   components/
     layout/
-      sidebar.tsx         Desktop sidebar navigation
-      bottom-nav.tsx      Mobile bottom navigation (hides admin tab for regular users)
+      sidebar.tsx         Desktop sidebar navigation (translated)
+      bottom-nav.tsx      Mobile bottom navigation (translated, hides admin tab for regular users)
     ui/
       confirm-dialog.tsx  Reusable confirmation dialog
+      offline-banner.tsx  Offline status banner (translated)
 
   types/
     database.ts           Full Supabase TypeScript types for all tables, views, and RPCs
 
   middleware.ts           Next.js middleware — refreshes session on every request
+
+public/
+  manifest.json           PWA manifest (name: "Meu Cesto")
+  favicon.svg             SVG favicon (basket icon in emerald)
+  icon.svg                App icon (512x512 SVG)
 
 supabase/
   schema.sql              Complete DDL: all tables, views, functions, triggers, RLS policies
@@ -644,8 +689,9 @@ npm run build
 | 017 | `cart_shares_and_updated_rls.sql` | Ensure cart_shares exists, fix RLS policies |
 | 018 | `fix_all_rls_policies.sql` | Dynamic drop+recreate of all RLS policies (handles name mismatches in live DB) |
 | 019 | `tracking_check_state.sql` | tracking_check_state column, get/update_tracking_check_state RPCs, leave_shared_cart RPC, get_shared_carts_for_user RPC |
-| 020 | `020_share_indexes_and_owner_email.sql` | Indexes on `cart_shares(shared_with_user_id)` and `list_shares(shared_with_user_id)`; adds `owner_email` to `get_shared_carts_for_user` response |
-| 021 | `021_product_entries_admin_crud.sql` | RLS UPDATE and DELETE policies on `product_entries` for admin/moderator |
+| 020 | `share_indexes_and_owner_email.sql` | Indexes on `cart_shares(shared_with_user_id)` and `list_shares(shared_with_user_id)`; adds `owner_email` to `get_shared_carts_for_user` response |
+| 021 | `product_entries_admin_crud.sql` | RLS UPDATE and DELETE policies on `product_entries` for admin/moderator |
+| 022 | `profile_language.sql` | `language` column on profiles table (default: 'pt') |
 
 ---
 

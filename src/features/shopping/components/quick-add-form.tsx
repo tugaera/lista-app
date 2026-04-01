@@ -5,6 +5,7 @@ import { addCartItemOffline } from "@/lib/offline/cart-actions";
 import type { CartItemDisplay } from "@/features/shopping/actions";
 import { ProductSearch, type ProductResult } from "./product-search";
 import { DiscountModal } from "./discount-modal";
+import { useT } from "@/i18n/i18n-provider";
 
 type QuickAddFormProps = {
   cartId: string;
@@ -35,6 +36,7 @@ export function QuickAddForm({
   const formRef = useRef<HTMLFormElement>(null);
   const lastScannedRef = useRef<string | undefined>(undefined);
 
+  const { t } = useT();
   const hasDiscount = originalPrice !== null && originalPrice > parseFloat(price);
   const discountPct = hasDiscount
     ? Math.round((1 - parseFloat(price) / originalPrice!) * 100)
@@ -45,7 +47,7 @@ export function QuickAddForm({
     if (!scannedBarcode || scannedBarcode === lastScannedRef.current) return;
     lastScannedRef.current = scannedBarcode;
     setBarcode(scannedBarcode);
-    setBarcodeStatus("Looking up barcode...");
+    setBarcodeStatus(t("shopping.lookingUpBarcode"));
 
     async function doLookup() {
       try {
@@ -64,15 +66,15 @@ export function QuickAddForm({
             .limit(1)
             .single();
           if (entry) setPrice(entry.price.toFixed(2));
-          setBarcodeStatus(`Found: ${result.name}`);
+          setBarcodeStatus(`${t("shopping.foundProduct")} ${result.name}`);
         } else if (result.name) {
           setProductName(result.name);
-          setBarcodeStatus(`Found: ${result.name}`);
+          setBarcodeStatus(`${t("shopping.foundProduct")} ${result.name}`);
         } else {
-          setBarcodeStatus("Product not found — type name below");
+          setBarcodeStatus(t("shopping.barcodeNotFound"));
         }
       } catch {
-        setBarcodeStatus("Error looking up barcode — type name below");
+        setBarcodeStatus(t("shopping.barcodeLookupError"));
       }
     }
 
@@ -86,7 +88,7 @@ export function QuickAddForm({
       setOriginalPrice(null);
     }
     setTimeout(() => {
-      const priceInput = formRef.current?.querySelector<HTMLInputElement>('input[placeholder="Price"]');
+      const priceInput = formRef.current?.querySelector<HTMLInputElement>('input[step="0.01"][inputmode="decimal"]');
       priceInput?.focus();
     }, 50);
   }
@@ -102,7 +104,7 @@ export function QuickAddForm({
     setError(null);
 
     if (!storeId) {
-      setError("Select a store in the header first");
+      setError(t("shopping.selectStoreFirst"));
       return;
     }
 
@@ -110,15 +112,15 @@ export function QuickAddForm({
     const parsedQuantity = parseFloat(quantity);
 
     if (!productName.trim()) {
-      setError("Product name is required");
+      setError(t("shopping.productNameRequired"));
       return;
     }
     if (isNaN(parsedPrice) || parsedPrice <= 0) {
-      setError("Enter a valid price");
+      setError(t("shopping.invalidPrice"));
       return;
     }
     if (isNaN(parsedQuantity) || parsedQuantity <= 0) {
-      setError("Enter a valid quantity");
+      setError(t("shopping.invalidQuantity"));
       return;
     }
 
@@ -162,7 +164,7 @@ export function QuickAddForm({
           )}
           {error && <p className="mb-2 text-xs text-red-600">{error}</p>}
           {disabled && (
-            <p className="mb-2 text-xs text-amber-600">⚠ Select a store above to start adding items</p>
+            <p className="mb-2 text-xs text-amber-600">⚠ {t("shopping.selectStoreWarning")}</p>
           )}
           {/* Row 1: scanner + product name */}
           <div className="mb-2 flex gap-2">
@@ -170,7 +172,7 @@ export function QuickAddForm({
               <button
                 type="button"
                 onClick={onScanRequest}
-                aria-label="Scan barcode"
+                aria-label={t("shopping.scanBarcode")}
                 className="flex-shrink-0 rounded-lg border border-gray-300 px-2.5 py-2 text-gray-600 hover:bg-gray-50"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -181,7 +183,7 @@ export function QuickAddForm({
             <div className="min-w-0 flex-1">
               <ProductSearch
                 onSelect={handleProductSelect}
-                placeholder="Product name (search or type new)"
+                placeholder={t("shopping.productNamePlaceholder")}
                 value={productName}
                 onValueChange={setProductName}
                 disabled={disabled}
@@ -205,7 +207,7 @@ export function QuickAddForm({
                   // Clear discount if price changes manually
                   setOriginalPrice(null);
                 }}
-                placeholder="Price"
+                placeholder={t("shopping.price")}
                 disabled={disabled}
                 className={`w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-1 disabled:bg-gray-50 disabled:text-gray-400 ${
                   hasDiscount
@@ -227,7 +229,7 @@ export function QuickAddForm({
               min="0.001"
               value={quantity}
               onChange={(e) => setQuantity(e.target.value)}
-              placeholder="Qty"
+              placeholder={t("shopping.qty")}
               disabled={disabled}
               className="w-16 flex-shrink-0 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-400"
             />
@@ -237,7 +239,7 @@ export function QuickAddForm({
               type="button"
               onClick={() => setShowDiscountModal(true)}
               disabled={disabled}
-              title={hasDiscount ? "Edit discount" : "Add discount"}
+              title={hasDiscount ? t("shopping.editDiscount") : t("shopping.addDiscount")}
               className={`flex-shrink-0 rounded-lg border px-2.5 py-2 text-sm transition-colors disabled:opacity-40 ${
                 hasDiscount
                   ? "border-orange-300 bg-orange-50 text-orange-600"
@@ -254,7 +256,7 @@ export function QuickAddForm({
               disabled={isPending || disabled}
               className="flex-1 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
             >
-              {isPending ? "..." : "Add"}
+              {isPending ? "..." : t("common.add")}
             </button>
           </div>
         </form>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useT } from "@/i18n/i18n-provider";
 import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -43,6 +44,7 @@ interface ListDetailProps {
 
 export function ListDetail({ list, items: initialItems, isOwner = true, initialShares = [], currentUserId = "", currentUserEmail = "" }: ListDetailProps) {
   const router = useRouter();
+  const { t } = useT();
   const [items, setItems] = useState(initialItems);
   const [isPending, startTransition] = useTransition();
   const [productName, setProductName] = useState("");
@@ -234,7 +236,7 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
   // ── Barcode scan ────────────────────────────────────────────────────────
   async function handleBarcodeScan(barcode: string) {
     setShowScanner(false);
-    setBarcodeStatus("Looking up barcode…");
+    setBarcodeStatus(t("shopping.lookingUpBarcode"));
     scannedBarcodeRef.current = barcode;
     scannedNameRef.current = null;
 
@@ -251,9 +253,9 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
       if (product) {
         scannedNameRef.current = product.name;
         setProductName(product.name);
-        setBarcodeStatus(`Found: ${product.name}`);
+        setBarcodeStatus(`${t("scanner.foundOnline")} ${product.name}`);
       } else {
-        setBarcodeStatus("Searching Open Food Facts…");
+        setBarcodeStatus(t("scanner.searchingOnline"));
         try {
           const res = await fetch(`https://world.openfoodfacts.org/api/v0/product/${barcode}.json`);
           const json = await res.json();
@@ -263,23 +265,23 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
             if (name) {
               scannedNameRef.current = name;
               setProductName(name);
-              setBarcodeStatus(`Found: ${name}`);
+              setBarcodeStatus(`${t("scanner.foundOnline")} ${name}`);
             } else {
               scannedBarcodeRef.current = null;
-              setBarcodeStatus("Product found but no name — type it below");
+              setBarcodeStatus(t("scanner.foundNoName"));
             }
           } else {
             scannedBarcodeRef.current = null;
-            setBarcodeStatus("Product not found — type name below");
+            setBarcodeStatus(t("scanner.notFoundOnline"));
           }
         } catch {
           scannedBarcodeRef.current = null;
-          setBarcodeStatus("Could not search online — type name below");
+          setBarcodeStatus(t("scanner.onlineSearchError"));
         }
       }
     } catch {
       scannedBarcodeRef.current = null;
-      setBarcodeStatus("Error looking up barcode");
+      setBarcodeStatus(t("scanner.barcodeLookupError"));
     }
   }
 
@@ -426,7 +428,7 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
           onClick={() => router.push("/lists")}
           className="mb-2 text-sm text-emerald-600 hover:text-emerald-700"
         >
-          ← Back to lists
+          {t("lists.backToLists")}
         </button>
         <div className="flex items-center justify-between gap-3">
           <h1 className="text-2xl font-bold text-gray-900">{list.name}</h1>
@@ -435,7 +437,7 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
               <button
                 type="button"
                 onClick={() => setShowSharePanel((v) => !v)}
-                title="Share list"
+                title={t("lists.shareList")}
                 className={`rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors ${
                   showSharePanel
                     ? "border-blue-200 bg-blue-50 text-blue-700"
@@ -455,7 +457,7 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
                 </svg>
-                Start Shopping
+                {t("shopping.startShopping")}
               </button>
             )}
           </div>
@@ -464,13 +466,13 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
         {/* Share panel */}
         {showSharePanel && isOwner && (
           <div className="mt-4 rounded-xl border border-blue-200 bg-white p-4 shadow-sm">
-            <h2 className="mb-3 text-sm font-semibold text-gray-900">Share this list</h2>
+            <h2 className="mb-3 text-sm font-semibold text-gray-900">{t("lists.shareThisList")}</h2>
             <form onSubmit={handleShare} className="mb-3 flex gap-2">
               <input
                 type="email"
                 value={shareEmail}
                 onChange={(e) => setShareEmail(e.target.value)}
-                placeholder="Enter email address"
+                placeholder={t("lists.enterEmail")}
                 className="flex-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
               />
               <button
@@ -478,14 +480,14 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
                 disabled={shareLoading || !shareEmail.trim()}
                 className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
               >
-                {shareLoading ? "..." : "Invite"}
+                {shareLoading ? "..." : t("common.invite")}
               </button>
             </form>
             {shareError && <p className="mb-2 text-xs text-red-600">{shareError}</p>}
 
             {/* Shareable link */}
             <div className="mb-3">
-              <p className="mb-1 text-xs text-gray-500">Or share a link — anyone who opens it can view this list.</p>
+              <p className="mb-1 text-xs text-gray-500">{t("lists.shareLinkHint")}</p>
               <div className="flex gap-1.5">
                 <input
                   type="text"
@@ -497,7 +499,7 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
                 <button
                   type="button"
                   onClick={handleCopyUrl}
-                  title="Copy link"
+                  title={t("lists.copyLink")}
                   className="shrink-0 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-blue-700 hover:bg-blue-100"
                 >
                   {urlCopied ? (
@@ -524,13 +526,13 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
                       disabled={shareLoading}
                       className="text-xs text-red-500 hover:text-red-700 disabled:opacity-50"
                     >
-                      Revoke
+                      {t("common.revoke")}
                     </button>
                   </li>
                 ))}
               </ul>
             ) : (
-              <p className="text-xs text-gray-500">No members yet. Invite someone by email or link.</p>
+              <p className="text-xs text-gray-500">{t("lists.noMembers")}</p>
             )}
           </div>
         )}
@@ -549,7 +551,7 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
               type="button"
               onClick={() => setShowScanner(true)}
               className="flex shrink-0 items-center justify-center rounded-lg border border-gray-300 px-3 text-gray-500 hover:border-blue-400 hover:text-blue-600"
-              title="Scan barcode"
+              title={t("shopping.scanBarcode")}
             >
               <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
@@ -558,7 +560,7 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
             <div className="flex-1 min-w-0">
               <ProductSearch
                 onSelect={handleProductSelect}
-                placeholder="Search or type product name"
+                placeholder={t("lists.searchOrType")}
                 value={productName}
                 onValueChange={(v) => {
                   setProductName(v);
@@ -575,17 +577,17 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
               min="1"
               value={quantity}
               onChange={(e) => setQuantity(e.target.value)}
-              placeholder="Qty"
+              placeholder={t("shopping.qty")}
               className="w-20 shrink-0 rounded-xl border border-gray-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
             />
-            <Button type="submit" loading={isPending} className="flex-1">Add</Button>
+            <Button type="submit" loading={isPending} className="flex-1">{t("common.add")}</Button>
           </div>
         </form>
       </Card>
 
       {/* Item list */}
       {items.length === 0 ? (
-        <p className="py-12 text-center text-gray-500">No items yet. Add products to your list.</p>
+        <p className="py-12 text-center text-gray-500">{t("lists.emptyListHint")}</p>
       ) : (
         <div className="space-y-3">
           {items.map((item) => (
@@ -606,15 +608,15 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
                         className="w-20"
                         autoFocus
                       />
-                      <Button size="sm" onClick={() => handleSaveQuantity(item.id)} loading={isPending}>Save</Button>
-                      <Button size="sm" variant="ghost" onClick={() => setEditingItem(null)}>Cancel</Button>
+                      <Button size="sm" onClick={() => handleSaveQuantity(item.id)} loading={isPending}>{t("common.save")}</Button>
+                      <Button size="sm" variant="ghost" onClick={() => setEditingItem(null)}>{t("common.cancel")}</Button>
                     </div>
                   ) : (
                     <p
                       className="text-sm text-gray-500 cursor-pointer hover:text-emerald-600"
                       onClick={() => handleStartEdit(item.id, item.planned_quantity)}
                     >
-                      Qty: {item.planned_quantity}
+                      {t("shopping.qty")}: {item.planned_quantity}
                     </p>
                   )}
                 </div>
@@ -633,7 +635,7 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
                     );
                   })()}
                   <Button variant="danger" size="sm" onClick={() => setDeleteConfirm(item.id)}>
-                    Remove
+                    {t("common.remove")}
                   </Button>
                 </div>
               </div>
@@ -652,9 +654,9 @@ export function ListDetail({ list, items: initialItems, isOwner = true, initialS
         open={deleteConfirm !== null}
         onClose={() => setDeleteConfirm(null)}
         onConfirm={handleRemoveItem}
-        title="Remove item"
-        message={`Remove "${deleteItem?.products?.name ?? deleteItem?.product_name ?? "this item"}" from the list?`}
-        confirmLabel="Remove"
+        title={t("lists.removeItem")}
+        message={`${t("common.remove")} "${deleteItem?.products?.name ?? deleteItem?.product_name ?? "this item"}" from the list?`}
+        confirmLabel={t("common.remove")}
         loading={isPending}
       />
     </div>

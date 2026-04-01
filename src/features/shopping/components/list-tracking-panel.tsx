@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { CartItemDisplay } from "@/features/shopping/actions";
+import { useT } from "@/i18n/i18n-provider";
 
 export type TrackingItem = {
   id: string;
@@ -72,6 +73,7 @@ export function ListTrackingPanel({
   onSuppressAutoMatch,
   onClose,
 }: ListTrackingPanelProps) {
+  const { t } = useT();
   const [collapsed, setCollapsed] = useState(false);
 
   const { matched, unmatched } = useMemo(() => {
@@ -129,7 +131,7 @@ export function ListTrackingPanel({
           type="button"
           onClick={onClose}
           className="ml-1 shrink-0 rounded p-0.5 text-emerald-500 hover:bg-emerald-100 hover:text-emerald-700"
-          aria-label="Close tracking"
+          aria-label={t("tracking.close")}
         >
           <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -157,7 +159,7 @@ export function ListTrackingPanel({
                 type="button"
                 onClick={() => onManualCheck(item.id)}
                 className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 border-gray-300 bg-white hover:border-emerald-400 hover:bg-emerald-50 transition-colors"
-                aria-label={`Mark ${item.name} as done`}
+                aria-label={t("tracking.markDone")}
               >
                 <span className="h-2 w-2 rounded-full bg-gray-300" />
               </button>
@@ -187,7 +189,7 @@ export function ListTrackingPanel({
                       ? "bg-emerald-500 hover:bg-emerald-400"
                       : "bg-emerald-400 hover:bg-emerald-300"
                   }`}
-                  aria-label={`Unmark ${item.name}`}
+                  aria-label={t("tracking.unmark")}
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />

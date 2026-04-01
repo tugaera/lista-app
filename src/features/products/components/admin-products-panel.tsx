@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useDebounce } from "@/hooks/useDebounce";
+import { useT } from "@/i18n/i18n-provider";
 import {
   getAdminProducts,
   adminUpdateProduct,
@@ -50,13 +51,14 @@ type PriceForm = {
 };
 
 function Badge({ active }: { active: boolean }) {
+  const { t } = useT();
   return (
     <span
       className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
         active ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-500"
       }`}
     >
-      {active ? "Active" : "Disabled"}
+      {active ? t("admin.active") : t("admin.disabled")}
     </span>
   );
 }
@@ -79,6 +81,7 @@ function todayISODate() {
 }
 
 export function AdminProductsPanel({ categories, stores }: AdminProductsPanelProps) {
+  const { t } = useT();
   const [query, setQuery] = useState("");
   const debouncedQuery = useDebounce(query, 300);
   const [products, setProducts] = useState<ProductWithLatestPrice[]>([]);
@@ -325,12 +328,12 @@ export function AdminProductsPanel({ categories, stores }: AdminProductsPanelPro
     const result = await lookupBarcode(barcode);
     if (result.found) {
       setAddName(result.name);
-      setAddLookupStatus(`Already in DB: "${result.name}"`);
+      setAddLookupStatus(`${t("products.alreadyInDB")} "${result.name}"`);
     } else if (result.name) {
       setAddName(result.name);
-      setAddLookupStatus(`Found on Open Food Facts: "${result.name}"`);
+      setAddLookupStatus(`${t("products.foundOnOFF")} "${result.name}"`);
     } else {
-      setAddLookupStatus("Product not found — enter the name below");
+      setAddLookupStatus(t("products.notFoundHint"));
     }
   }
 
@@ -361,15 +364,15 @@ export function AdminProductsPanel({ categories, stores }: AdminProductsPanelPro
         type="search"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        placeholder="Search products…"
+        placeholder={t("products.search")}
         className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm focus:border-emerald-500 focus:outline-none"
       />
 
       {/* List */}
       {loading ? (
-        <p className="py-8 text-center text-sm text-gray-400">Loading…</p>
+        <p className="py-8 text-center text-sm text-gray-400">{t("common.loading")}</p>
       ) : products.length === 0 ? (
-        <p className="py-8 text-center text-sm text-gray-400">No products found.</p>
+        <p className="py-8 text-center text-sm text-gray-400">{t("products.noResults")}</p>
       ) : (
         <div className="divide-y divide-gray-100 rounded-xl border border-gray-200 bg-white">
           {products.map((product) => (
@@ -396,7 +399,7 @@ export function AdminProductsPanel({ categories, stores }: AdminProductsPanelPro
                   onClick={() => openEdit(product)}
                   className="rounded-lg border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50"
                 >
-                  Edit
+                  {t("common.edit")}
                 </button>
                 <button
                   type="button"
@@ -408,14 +411,14 @@ export function AdminProductsPanel({ categories, stores }: AdminProductsPanelPro
                       : "border-emerald-200 text-emerald-600 hover:bg-emerald-50"
                   }`}
                 >
-                  {product.is_active ? "Disable" : "Enable"}
+                  {product.is_active ? t("common.disable") : t("common.enable")}
                 </button>
                 <button
                   type="button"
                   onClick={() => openDelete(product)}
                   className="rounded-lg border border-red-200 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
                 >
-                  Delete
+                  {t("common.delete")}
                 </button>
               </div>
             </div>
@@ -437,13 +440,13 @@ export function AdminProductsPanel({ categories, stores }: AdminProductsPanelPro
             onClick={(e) => { if (e.target === e.currentTarget) setEdit(null); }}
           >
             <div className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl">
-              <h3 className="mb-5 text-lg font-semibold text-gray-900">Edit Product</h3>
+              <h3 className="mb-5 text-lg font-semibold text-gray-900">{t("admin.editProduct")}</h3>
 
               {/* Basic Information */}
-              <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-400">Basic Information</p>
+              <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-400">{t("admin.basicInfo")}</p>
               <div className="space-y-3">
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-gray-700">Name *</label>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">{t("admin.name")} *</label>
                   <input
                     type="text"
                     value={edit.name}
@@ -452,13 +455,13 @@ export function AdminProductsPanel({ categories, stores }: AdminProductsPanelPro
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-gray-700">Barcode</label>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">{t("admin.barcode")}</label>
                   <div className="flex gap-2">
                     <input
                       type="text"
                       value={edit.barcode}
                       onChange={(e) => setEdit({ ...edit, barcode: e.target.value })}
-                      placeholder="Optional"
+                      placeholder={t("common.optional")}
                       className="min-w-0 flex-1 rounded-xl border border-gray-200 px-3 py-2 font-mono text-sm focus:border-emerald-500 focus:outline-none"
                     />
                     <button
@@ -468,18 +471,18 @@ export function AdminProductsPanel({ categories, stores }: AdminProductsPanelPro
                       className="flex items-center gap-1.5 rounded-xl border border-gray-200 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50"
                     >
                       <BarcodeIcon />
-                      Scan
+                      {t("products.scan")}
                     </button>
                   </div>
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-gray-700">Category</label>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">{t("admin.category")}</label>
                   <select
                     value={edit.categoryId}
                     onChange={(e) => setEdit({ ...edit, categoryId: e.target.value })}
                     className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
                   >
-                    <option value="">No category</option>
+                    <option value="">{t("common.noCategory")}</option>
                     {categories.map((c) => (
                       <option key={c.id} value={c.id}>{c.name}</option>
                     ))}
@@ -491,22 +494,22 @@ export function AdminProductsPanel({ categories, stores }: AdminProductsPanelPro
               {/* Price History */}
               <div className="mt-6">
                 <div className="mb-3 flex items-center justify-between">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-gray-400">Price History</p>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-gray-400">{t("admin.priceHistory")}</p>
                   {!priceForm && (
                     <button
                       type="button"
                       onClick={() => openPriceForm()}
                       className="rounded-lg bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:bg-emerald-700"
                     >
-                      + Add Entry
+                      {t("admin.addEntry")}
                     </button>
                   )}
                 </div>
 
                 {priceHistoryLoading ? (
-                  <p className="py-4 text-center text-sm text-gray-400">Loading…</p>
+                  <p className="py-4 text-center text-sm text-gray-400">{t("common.loading")}</p>
                 ) : priceHistory.length === 0 && !priceForm ? (
-                  <p className="py-4 text-center text-sm text-gray-400">No price history yet.</p>
+                  <p className="py-4 text-center text-sm text-gray-400">{t("products.noPriceHistory")}</p>
                 ) : (
                   <div className="divide-y divide-gray-100 rounded-xl border border-gray-200 bg-gray-50">
                     {priceHistory.map((entry) => {
@@ -548,14 +551,14 @@ export function AdminProductsPanel({ categories, stores }: AdminProductsPanelPro
                                   disabled={isDeleting}
                                   className="rounded border border-red-300 px-2 py-0.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
                                 >
-                                  {isDeleting ? "…" : "Yes"}
+                                  {isDeleting ? "…" : t("common.yes")}
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => setConfirmDeleteEntryId(null)}
                                   className="rounded border border-gray-200 px-2 py-0.5 text-xs font-medium text-gray-500 hover:bg-gray-50"
                                 >
-                                  No
+                                  {t("common.no")}
                                 </button>
                               </>
                             ) : (
@@ -565,14 +568,14 @@ export function AdminProductsPanel({ categories, stores }: AdminProductsPanelPro
                                   onClick={() => { setPriceForm(null); setTimeout(() => openPriceForm(entry), 0); }}
                                   className="rounded border border-gray-200 px-2 py-0.5 text-xs font-medium text-gray-600 hover:bg-gray-50"
                                 >
-                                  Edit
+                                  {t("common.edit")}
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => setConfirmDeleteEntryId(entry.id)}
                                   className="rounded border border-red-200 px-2 py-0.5 text-xs font-medium text-red-600 hover:bg-red-50"
                                 >
-                                  Delete
+                                  {t("common.delete")}
                                 </button>
                               </>
                             )}
@@ -587,24 +590,24 @@ export function AdminProductsPanel({ categories, stores }: AdminProductsPanelPro
                 {priceForm && (
                   <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
                     <p className="mb-3 text-sm font-medium text-emerald-800">
-                      {priceForm.entryId ? "Edit Price Entry" : "Add Price Entry"}
+                      {priceForm.entryId ? t("admin.editEntry") : t("admin.addPriceEntry")}
                     </p>
                     <div className="grid grid-cols-2 gap-3">
                       <div className="col-span-2">
-                        <label className="mb-1 block text-xs font-medium text-gray-700">Supermarket *</label>
+                        <label className="mb-1 block text-xs font-medium text-gray-700">{t("admin.supermarket")} *</label>
                         <select
                           value={priceForm.storeId}
                           onChange={(e) => setPriceForm({ ...priceForm, storeId: e.target.value })}
                           className="w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm focus:border-emerald-500 focus:outline-none"
                         >
-                          <option value="">Select store…</option>
+                          <option value="">{t("admin.selectStore")}</option>
                           {stores.map((s) => (
                             <option key={s.id} value={s.id}>{s.name}</option>
                           ))}
                         </select>
                       </div>
                       <div>
-                        <label className="mb-1 block text-xs font-medium text-gray-700">Price *</label>
+                        <label className="mb-1 block text-xs font-medium text-gray-700">{t("admin.price")} *</label>
                         <input
                           type="number"
                           step="0.01"
@@ -616,7 +619,7 @@ export function AdminProductsPanel({ categories, stores }: AdminProductsPanelPro
                         />
                       </div>
                       <div>
-                        <label className="mb-1 block text-xs font-medium text-gray-700">Original Price</label>
+                        <label className="mb-1 block text-xs font-medium text-gray-700">{t("admin.originalPrice")}</label>
                         <input
                           type="number"
                           step="0.01"
@@ -628,7 +631,7 @@ export function AdminProductsPanel({ categories, stores }: AdminProductsPanelPro
                         />
                       </div>
                       <div>
-                        <label className="mb-1 block text-xs font-medium text-gray-700">Quantity *</label>
+                        <label className="mb-1 block text-xs font-medium text-gray-700">{t("admin.quantity")} *</label>
                         <input
                           type="number"
                           step="0.001"
@@ -639,7 +642,7 @@ export function AdminProductsPanel({ categories, stores }: AdminProductsPanelPro
                         />
                       </div>
                       <div>
-                        <label className="mb-1 block text-xs font-medium text-gray-700">Date *</label>
+                        <label className="mb-1 block text-xs font-medium text-gray-700">{t("admin.date")} *</label>
                         <input
                           type="datetime-local"
                           value={priceForm.date}
@@ -655,7 +658,7 @@ export function AdminProductsPanel({ categories, stores }: AdminProductsPanelPro
                         onClick={() => { setPriceForm(null); setPriceFormError(null); }}
                         className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-white"
                       >
-                        Cancel
+                        {t("common.cancel")}
                       </button>
                       <button
                         type="button"
@@ -663,7 +666,7 @@ export function AdminProductsPanel({ categories, stores }: AdminProductsPanelPro
                         disabled={priceFormLoading}
                         className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
                       >
-                        {priceFormLoading ? "Saving…" : "Save Entry"}
+                        {priceFormLoading ? t("common.saving") : t("admin.saveEntry")}
                       </button>
                     </div>
                   </div>
@@ -676,7 +679,7 @@ export function AdminProductsPanel({ categories, stores }: AdminProductsPanelPro
                   onClick={() => setEdit(null)}
                   className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50"
                 >
-                  Cancel
+                  {t("common.cancel")}
                 </button>
                 <button
                   type="button"
@@ -684,7 +687,7 @@ export function AdminProductsPanel({ categories, stores }: AdminProductsPanelPro
                   disabled={editLoading}
                   className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
                 >
-                  {editLoading ? "Saving…" : "Save"}
+                  {editLoading ? t("common.saving") : t("common.save")}
                 </button>
               </div>
             </div>
@@ -699,7 +702,7 @@ export function AdminProductsPanel({ categories, stores }: AdminProductsPanelPro
           onClick={(e) => { if (e.target === e.currentTarget && !deleteLoading) { setDeleteTarget(null); } }}
         >
           <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
-            <h3 className="mb-1 text-lg font-semibold text-gray-900">Delete Product</h3>
+            <h3 className="mb-1 text-lg font-semibold text-gray-900">{t("admin.deleteProduct")}</h3>
             <p className="mb-4 text-sm text-gray-500">
               Are you sure you want to permanently delete <span className="font-medium text-gray-900">{deleteTarget.name}</span>?
             </p>
@@ -740,7 +743,7 @@ export function AdminProductsPanel({ categories, stores }: AdminProductsPanelPro
                 disabled={deleteLoading}
                 className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50"
               >
-                Cancel
+                {t("common.cancel")}
               </button>
               <button
                 type="button"
@@ -748,7 +751,7 @@ export function AdminProductsPanel({ categories, stores }: AdminProductsPanelPro
                 disabled={deleteLoading || deleteChecking}
                 className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
               >
-                {deleteLoading ? "Deleting…" : "Delete"}
+                {deleteLoading ? t("common.deleting") : t("common.delete")}
               </button>
             </div>
           </div>
@@ -769,19 +772,18 @@ export function AdminProductsPanel({ categories, stores }: AdminProductsPanelPro
             onClick={(e) => { if (e.target === e.currentTarget) setShowAdd(false); }}
           >
             <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
-              <h3 className="mb-4 text-lg font-semibold text-gray-900">Add Product</h3>
+              <h3 className="mb-4 text-lg font-semibold text-gray-900">{t("admin.addProduct")}</h3>
               <div className="space-y-3">
                 <div>
                   <label className="mb-1 block text-sm font-medium text-gray-700">
-                    Barcode
-                    <span className="ml-1 font-normal text-gray-400">(scan first to auto-fill)</span>
+                    {t("products.barcodeScanHint")}
                   </label>
                   <div className="flex gap-2">
                     <input
                       type="text"
                       value={addBarcode}
                       onChange={(e) => setAddBarcode(e.target.value)}
-                      placeholder="Optional"
+                      placeholder={t("common.optional")}
                       className="min-w-0 flex-1 rounded-xl border border-gray-200 px-3 py-2 font-mono text-sm focus:border-emerald-500 focus:outline-none"
                     />
                     <button
@@ -791,7 +793,7 @@ export function AdminProductsPanel({ categories, stores }: AdminProductsPanelPro
                       className="flex items-center gap-1.5 rounded-xl border border-gray-200 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50"
                     >
                       <BarcodeIcon />
-                      Scan
+                      {t("products.scan")}
                     </button>
                   </div>
                   {addLookupStatus && (
@@ -801,7 +803,7 @@ export function AdminProductsPanel({ categories, stores }: AdminProductsPanelPro
                   )}
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-gray-700">Name *</label>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">{t("admin.name")} *</label>
                   <input
                     type="text"
                     value={addName}
@@ -810,13 +812,13 @@ export function AdminProductsPanel({ categories, stores }: AdminProductsPanelPro
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-gray-700">Category</label>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">{t("admin.category")}</label>
                   <select
                     value={addCategoryId}
                     onChange={(e) => setAddCategoryId(e.target.value)}
                     className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
                   >
-                    <option value="">No category</option>
+                    <option value="">{t("common.noCategory")}</option>
                     {categories.map((c) => (
                       <option key={c.id} value={c.id}>{c.name}</option>
                     ))}
@@ -830,7 +832,7 @@ export function AdminProductsPanel({ categories, stores }: AdminProductsPanelPro
                   onClick={() => setShowAdd(false)}
                   className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50"
                 >
-                  Cancel
+                  {t("common.cancel")}
                 </button>
                 <button
                   type="button"
@@ -838,7 +840,7 @@ export function AdminProductsPanel({ categories, stores }: AdminProductsPanelPro
                   disabled={addLoading}
                   className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
                 >
-                  {addLoading ? "Adding…" : "Add"}
+                  {addLoading ? t("common.adding") : t("common.add")}
                 </button>
               </div>
             </div>

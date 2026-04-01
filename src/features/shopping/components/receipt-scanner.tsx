@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
+import { useT } from "@/i18n/i18n-provider";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
@@ -31,6 +32,7 @@ export function ReceiptScanner({
   cartItems,
   onComplete,
 }: ReceiptScannerProps) {
+  const { t } = useT();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [processing, setProcessing] = useState(false);
@@ -147,14 +149,14 @@ export function ReceiptScanner({
   }
 
   function getMismatchInfo(item: EditableOcrItem): string | null {
-    if (!item.matchedCartItemId) return "No matching cart item";
+    if (!item.matchedCartItemId) return t("receipt.noMatchingItem");
     const cartItem = cartItems.find((c) => c.id === item.matchedCartItemId);
     if (!cartItem) return null;
     if (Math.abs(cartItem.price - item.price) > 0.01) {
-      return `Price differs from cart ($${cartItem.price.toFixed(2)})`;
+      return `${t("receipt.priceDiffers")} ($${cartItem.price.toFixed(2)})`;
     }
     if (cartItem.quantity !== item.quantity) {
-      return `Quantity differs from cart (${cartItem.quantity})`;
+      return `${t("receipt.qtyDiffers")} (${cartItem.quantity})`;
     }
     return null;
   }
@@ -183,12 +185,12 @@ export function ReceiptScanner({
           </svg>
 
           <p className="text-sm text-gray-500">
-            Take a photo or upload an image of your receipt
+            {t("receipt.uploadHint")}
           </p>
 
           <div className="flex gap-2">
             <Button onClick={() => fileInputRef.current?.click()}>
-              Upload Receipt
+              {t("receipt.upload")}
             </Button>
             <Button
               variant="secondary"
@@ -199,7 +201,7 @@ export function ReceiptScanner({
                 }
               }}
             >
-              Take Photo
+              {t("receipt.takePhoto")}
             </Button>
           </div>
 
@@ -217,7 +219,7 @@ export function ReceiptScanner({
         <div className="flex flex-col items-center gap-3 py-8">
           <Spinner size="lg" />
           <p className="text-sm text-gray-500">
-            {uploading ? "Uploading receipt..." : "Processing receipt..."}
+            {uploading ? t("receipt.uploading") : t("receipt.processing")}
           </p>
         </div>
       )}
@@ -232,7 +234,7 @@ export function ReceiptScanner({
               fileInputRef.current?.click();
             }}
           >
-            Try again
+            {t("receipt.tryAgain")}
           </button>
         </div>
       )}
@@ -263,18 +265,18 @@ export function ReceiptScanner({
           {/* Action bar */}
           <div className="flex items-center justify-between">
             <p className="text-sm text-gray-500">
-              {acceptedCount} accepted, {pendingCount} pending,{" "}
-              {ocrItems.length - acceptedCount - pendingCount} rejected
+              {acceptedCount} {t("receipt.accepted")}, {pendingCount} {t("receipt.pending")},{" "}
+              {ocrItems.length - acceptedCount - pendingCount} {t("receipt.rejected")}
             </p>
             <div className="flex gap-2">
               {pendingCount > 0 && (
                 <Button variant="secondary" size="sm" onClick={acceptAll}>
-                  Accept All
+                  {t("receipt.acceptAll")}
                 </Button>
               )}
               {acceptedCount > 0 && (
                 <Button size="sm" onClick={handleComplete}>
-                  Done
+                  {t("common.done")}
                 </Button>
               )}
             </div>

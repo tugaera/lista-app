@@ -10,6 +10,7 @@ import type { CartItemDisplay } from "@/features/shopping/actions";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useMemo } from "react";
 import { createUserColorMap, getUserInitial } from "@/lib/user-colors";
+import { useT } from "@/i18n/i18n-provider";
 
 type PriceEntry = {
   store: string;
@@ -27,6 +28,7 @@ type CartItemListProps = {
 };
 
 export function CartItemList({ items, cartId, onItemRemoved, onItemUpdated, isShared = false }: CartItemListProps) {
+  const { t } = useT();
   // Create a color map that assigns unique colors per user email
   const colorMap = useMemo(() => {
     const map = createUserColorMap();
@@ -66,8 +68,8 @@ export function CartItemList({ items, cartId, onItemRemoved, onItemUpdated, isSh
           <svg xmlns="http://www.w3.org/2000/svg" className="mx-auto mb-3 h-16 w-16 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 100 4 2 2 0 000-4z" />
           </svg>
-          <p className="text-sm font-medium text-gray-500">Cart is empty</p>
-          <p className="mt-1 text-xs text-gray-400">Add items using the form below</p>
+          <p className="text-sm font-medium text-gray-500">{t("shopping.emptyCart")}</p>
+          <p className="mt-1 text-xs text-gray-400">{t("shopping.emptyCartHint")}</p>
         </div>
       ) : (
         <>
@@ -87,12 +89,12 @@ export function CartItemList({ items, cartId, onItemRemoved, onItemUpdated, isSh
           <div className="sticky bottom-24 border-t border-gray-200 bg-white px-4 py-3">
             {totalSavings > 0.001 && (
               <div className="mb-1 flex items-center justify-between">
-                <span className="text-xs text-emerald-600">Total savings</span>
+                <span className="text-xs text-emerald-600">{t("shopping.totalSavings")}</span>
                 <span className="text-xs font-semibold text-emerald-600">−€{totalSavings.toFixed(2)}</span>
               </div>
             )}
             <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-gray-600">Total</span>
+              <span className="text-sm font-medium text-gray-600">{t("shopping.total")}</span>
               <span className="text-lg font-bold text-gray-900">€{total.toFixed(2)}</span>
             </div>
           </div>
@@ -103,9 +105,9 @@ export function CartItemList({ items, cartId, onItemRemoved, onItemUpdated, isSh
         open={deleteConfirm !== null}
         onClose={() => setDeleteConfirm(null)}
         onConfirm={handleConfirmDelete}
-        title="Remove item"
-        message={`Are you sure you want to remove "${deleteItem?.productName ?? "this item"}" from the cart?`}
-        confirmLabel="Remove"
+        title={t("shopping.removeItem")}
+        message={t("shopping.removeItemConfirm")}
+        confirmLabel={t("common.remove")}
         loading={isDeleting}
       />
     </div>
@@ -123,6 +125,7 @@ function PriceHistoryPopover({
   productName: string;
   onClose: () => void;
 }) {
+  const { t } = useT();
   const [entries, setEntries] = useState<PriceEntry[] | null>(null);
   const [loading, setLoading] = useState(true);
   const ref = useRef<HTMLDivElement>(null);
@@ -191,7 +194,7 @@ function PriceHistoryPopover({
       <div className="px-3 pb-3 pt-3">
         <div className="mb-2 flex items-center justify-between">
           <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-            Prices by store
+            {t("shopping.pricesByStore")}
           </p>
           <button type="button" onClick={onClose} className="rounded p-0.5 text-gray-400 hover:text-gray-600">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
@@ -217,7 +220,7 @@ function PriceHistoryPopover({
                   <p className={`truncate text-sm font-medium ${i === 0 ? "text-emerald-800" : "text-gray-700"}`}>
                     {e.store}
                     {i === 0 && (
-                      <span className="ml-1 text-xs font-normal text-emerald-600">lowest</span>
+                      <span className="ml-1 text-xs font-normal text-emerald-600">{t("shopping.lowest")}</span>
                     )}
                   </p>
                   <p className="text-xs text-gray-400">
@@ -240,7 +243,7 @@ function PriceHistoryPopover({
             ))}
           </ul>
         ) : (
-          <p className="py-3 text-center text-xs text-gray-400">No price history found.</p>
+          <p className="py-3 text-center text-xs text-gray-400">{t("shopping.noPriceHistory")}</p>
         )}
       </div>
     </div>
@@ -264,6 +267,7 @@ function CartItemRow({
   isShared?: boolean;
   userColor?: { bg: string; text: string; border: string };
 }) {
+  const { t } = useT();
   const [isEditing, setIsEditing] = useState(false);
   const [editQuantity, setEditQuantity] = useState(String(item.quantity));
   const [isPending, startTransition] = useTransition();
@@ -306,7 +310,7 @@ function CartItemRow({
             </>
           ) : (
             <span className="text-xs text-gray-500">
-              &euro;{item.price.toFixed(2)} each
+              &euro;{item.price.toFixed(2)} {t("shopping.each")}
             </span>
           )}
         </div>
@@ -335,7 +339,7 @@ function CartItemRow({
                   ? "bg-emerald-100 text-emerald-600"
                   : "text-gray-300 hover:bg-emerald-50 hover:text-emerald-500"
               }`}
-              title="View prices across stores"
+              title={t("shopping.viewPrices")}
             >
               <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
@@ -387,7 +391,7 @@ function CartItemRow({
           onClick={onDelete}
           disabled={isPending}
           className="ml-0.5 rounded-md p-1 text-gray-400 hover:bg-red-50 hover:text-red-500"
-          aria-label={`Remove ${item.productName}`}
+          aria-label={t("shopping.removeItem")}
         >
           <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />

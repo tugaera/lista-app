@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useT } from "@/i18n/i18n-provider";
 
 type BarcodeScannerProps = {
   onScan: (barcode: string) => void;
@@ -21,6 +22,7 @@ declare global {
 }
 
 export function BarcodeScanner({ onScan, onClose }: BarcodeScannerProps) {
+  const { t } = useT();
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [isSupported, setIsSupported] = useState(true);
@@ -57,7 +59,7 @@ export function BarcodeScanner({ onScan, onClose }: BarcodeScannerProps) {
           scanLoop(detector);
         }
       } catch {
-        setError("Could not access camera");
+        setError(t("scanner.cameraError"));
         setIsSupported(false);
       }
     }
@@ -112,7 +114,7 @@ export function BarcodeScanner({ onScan, onClose }: BarcodeScannerProps) {
     <div className="fixed inset-0 z-50 flex flex-col bg-black">
       {/* Header */}
       <div className="flex items-center justify-between bg-black/80 px-4 py-3">
-        <h2 className="text-sm font-medium text-white">Scan Barcode</h2>
+        <h2 className="text-sm font-medium text-white">{t("scanner.title")}</h2>
         <button
           type="button"
           onClick={() => {
@@ -120,7 +122,7 @@ export function BarcodeScanner({ onScan, onClose }: BarcodeScannerProps) {
             onClose();
           }}
           className="rounded-full p-1 text-white hover:bg-white/20"
-          aria-label="Close scanner"
+          aria-label={t("scanner.close")}
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -157,16 +159,16 @@ export function BarcodeScanner({ onScan, onClose }: BarcodeScannerProps) {
             </div>
           </div>
           <p className="absolute bottom-8 text-center text-xs text-white/70">
-            Point camera at a barcode
+            {t("scanner.pointCamera")}
           </p>
         </div>
       ) : (
         <div className="flex flex-1 flex-col items-center justify-center px-6">
           <p className="mb-4 text-center text-sm text-white/70">
-            {error ?? "Barcode scanner is not supported on this device."}
+            {error ?? t("scanner.notSupported")}
           </p>
           <p className="mb-6 text-center text-sm text-white/70">
-            Enter the barcode manually:
+            {t("scanner.enterManually")}
           </p>
           <form onSubmit={handleManualSubmit} className="flex w-full max-w-xs gap-2">
             <input
@@ -174,7 +176,7 @@ export function BarcodeScanner({ onScan, onClose }: BarcodeScannerProps) {
               inputMode="numeric"
               value={manualBarcode}
               onChange={(e) => setManualBarcode(e.target.value)}
-              placeholder="Barcode number"
+              placeholder={t("scanner.barcodePlaceholder")}
               autoFocus
               className="flex-1 rounded-lg border border-gray-600 bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-400 focus:border-blue-500 focus:outline-none"
             />
@@ -182,7 +184,7 @@ export function BarcodeScanner({ onScan, onClose }: BarcodeScannerProps) {
               type="submit"
               className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
             >
-              Go
+              {t("common.go")}
             </button>
           </form>
         </div>

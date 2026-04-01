@@ -21,6 +21,27 @@ export async function getCurrentUserProfile(): Promise<Profile | null> {
   return data;
 }
 
+export async function updateLanguage(language: string): Promise<{ error?: string }> {
+  const supabase = await createServerSupabaseClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const { error } = await supabase
+    .from("profiles")
+    .update({ language })
+    .eq("id", user.id);
+
+  if (error) return { error: error.message };
+  return {};
+}
+
+export async function changePassword(newPassword: string): Promise<{ error?: string }> {
+  const supabase = await createServerSupabaseClient();
+  const { error } = await supabase.auth.updateUser({ password: newPassword });
+  if (error) return { error: error.message };
+  return {};
+}
+
 export type UserWithInviter = Profile & { inviter_email?: string };
 
 export async function getUsers(): Promise<{ users: UserWithInviter[]; error?: string }> {

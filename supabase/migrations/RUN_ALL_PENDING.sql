@@ -833,5 +833,8 @@ DO $$ BEGIN
   END IF;
 END $$;
 
+-- === Migration 022: language preference on profiles ===
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS language TEXT NOT NULL DEFAULT 'pt';
+
 -- DONE! All migrations applied.
 -- ============================================================

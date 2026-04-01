@@ -4,9 +4,11 @@ import { useState, useTransition } from "react";
 import { Card } from "@/components/ui/card";
 import { useUser } from "./user-provider";
 import { updateUserRole, type UserWithInviter } from "@/features/users/actions";
+import { useT } from "@/i18n/i18n-provider";
 import type { UserRole } from "@/types/database";
 
 export function UserList({ users: initialUsers }: { users: UserWithInviter[] }) {
+  const { t } = useT();
   const { isAdmin, profile: currentUser } = useUser();
   const [users, setUsers] = useState(initialUsers);
   const [isPending, startTransition] = useTransition();
@@ -32,7 +34,7 @@ export function UserList({ users: initialUsers }: { users: UserWithInviter[] }) 
         setUsers(initialUsers);
         setFeedback({ id: userId, message: result.error });
       } else {
-        setFeedback({ id: userId, message: "Role updated" });
+        setFeedback({ id: userId, message: t("admin.roleUpdated") });
         setTimeout(() => setFeedback(null), 2000);
       }
     });
@@ -46,9 +48,9 @@ export function UserList({ users: initialUsers }: { users: UserWithInviter[] }) 
 
   return (
     <Card>
-      <h2 className="mb-4 text-lg font-semibold text-gray-900">Users</h2>
+      <h2 className="mb-4 text-lg font-semibold text-gray-900">{t("admin.users")}</h2>
       {users.length === 0 ? (
-        <p className="py-4 text-center text-sm text-gray-500">No users found.</p>
+        <p className="py-4 text-center text-sm text-gray-500">{t("admin.noUsers")}</p>
       ) : (
         <div className="divide-y divide-gray-100">
           {users.map((user) => (
@@ -60,17 +62,17 @@ export function UserList({ users: initialUsers }: { users: UserWithInviter[] }) 
                 <p className="truncate text-sm font-medium text-gray-900">
                   {user.email}
                   {user.id === currentUser.id && (
-                    <span className="ml-2 text-xs text-gray-400">(you)</span>
+                    <span className="ml-2 text-xs text-gray-400">{t("admin.you")}</span>
                   )}
                 </p>
                 <p className="text-xs text-gray-500">
-                  Joined {new Date(user.created_at).toLocaleDateString()}
+                  {t("admin.joined")} {new Date(user.created_at).toLocaleDateString()}
                   {user.inviter_email && (
-                    <> &middot; Invited by <span className="font-medium">{user.inviter_email}</span></>
+                    <> &middot; {t("admin.invitedBy")} <span className="font-medium">{user.inviter_email}</span></>
                   )}
                 </p>
                 {feedback?.id === user.id && (
-                  <p className={`text-xs ${feedback.message === "Role updated" ? "text-emerald-600" : "text-red-600"}`}>
+                  <p className={`text-xs ${feedback.message === t("admin.roleUpdated") ? "text-emerald-600" : "text-red-600"}`}>
                     {feedback.message}
                   </p>
                 )}
@@ -83,15 +85,15 @@ export function UserList({ users: initialUsers }: { users: UserWithInviter[] }) 
                   disabled={isPending}
                   className="rounded-lg border border-gray-300 px-2 py-1 text-xs font-medium focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
                 >
-                  <option value="user">User</option>
-                  <option value="moderator">Moderator</option>
-                  <option value="admin">Admin</option>
+                  <option value="user">{t("admin.user")}</option>
+                  <option value="moderator">{t("admin.moderator")}</option>
+                  <option value="admin">{t("admin.admin")}</option>
                 </select>
               ) : (
                 <span
                   className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${roleColors[user.role]}`}
                 >
-                  {user.role}
+                  {user.role === "admin" ? t("admin.admin") : user.role === "moderator" ? t("admin.moderator") : t("admin.user")}
                 </span>
               )}
             </div>
