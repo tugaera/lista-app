@@ -1,11 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { useT } from "@/i18n/i18n-provider";
 
 const TABS = [
-  { id: "users", label: "Users & Invites" },
-  { id: "stores", label: "Stores" },
-  { id: "products", label: "Products" },
+  { id: "users", labelKey: "admin.users" as const },
+  { id: "stores", labelKey: "admin.stores" as const },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
@@ -13,10 +13,10 @@ type TabId = (typeof TABS)[number]["id"];
 interface AdminTabsProps {
   usersPanel: React.ReactNode;
   storesPanel: React.ReactNode;
-  productsPanel: React.ReactNode;
 }
 
-export function AdminTabs({ usersPanel, storesPanel, productsPanel }: AdminTabsProps) {
+export function AdminTabs({ usersPanel, storesPanel }: AdminTabsProps) {
+  const { t } = useT();
   const [active, setActive] = useState<TabId>("users");
 
   return (
@@ -34,7 +34,7 @@ export function AdminTabs({ usersPanel, storesPanel, productsPanel }: AdminTabsP
                 : "text-gray-500 hover:text-gray-700"
             }`}
           >
-            {tab.label}
+            {t(tab.labelKey)}
           </button>
         ))}
       </div>
@@ -43,7 +43,6 @@ export function AdminTabs({ usersPanel, storesPanel, productsPanel }: AdminTabsP
       <div className="space-y-6">
         {active === "users" && usersPanel}
         {active === "stores" && storesPanel}
-        {active === "products" && productsPanel}
       </div>
     </>
   );
