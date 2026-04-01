@@ -476,30 +476,6 @@ export function ProductsPage({ categories, stores = [] }: ProductsPageProps) {
                 })()}
               </button>
 
-              {/* Admin quick actions on card */}
-              {isAdminOrModerator && (
-                <div className="mt-2 flex gap-1.5 border-t border-gray-100 pt-2">
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); handleToggle(product); }}
-                    disabled={toggling.has(product.id)}
-                    className={`rounded-lg px-2 py-1 text-xs font-medium transition disabled:opacity-50 ${
-                      product.is_active
-                        ? "text-orange-600 hover:bg-orange-50"
-                        : "text-emerald-600 hover:bg-emerald-50"
-                    }`}
-                  >
-                    {product.is_active ? t("common.disable") : t("common.enable")}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); openDelete(product); }}
-                    className="rounded-lg px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
-                  >
-                    {t("common.delete")}
-                  </button>
-                </div>
-              )}
             </Card>
           ))}
         </div>
