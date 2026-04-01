@@ -69,6 +69,8 @@
   "profile.passwordUpdated": "Password updated successfully",
   "profile.passwordMismatch": "New passwords do not match",
   "profile.passwordTooShort": "Password must be at least 6 characters",
+  "profile.currentPasswordRequired": "Current password is required",
+  "profile.currentPasswordIncorrect": "Current password is incorrect",
   "profile.account": "Account",
   "profile.preferences": "Preferences",
   "profile.email": "Email",

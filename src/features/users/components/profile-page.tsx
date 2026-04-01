@@ -11,6 +11,7 @@ export function ProfilePage() {
   const { t, locale, setLocale } = useT();
 
   // Password change
+  const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordLoading, setPasswordLoading] = useState(false);
@@ -31,6 +32,10 @@ export function ProfilePage() {
     setPasswordError(null);
     setPasswordSuccess(false);
 
+    if (!currentPassword) {
+      setPasswordError(t("profile.currentPasswordRequired"));
+      return;
+    }
     if (newPassword.length < 6) {
       setPasswordError(t("profile.passwordTooShort"));
       return;
@@ -41,11 +46,12 @@ export function ProfilePage() {
     }
 
     setPasswordLoading(true);
-    const { error } = await changePassword(newPassword);
+    const { error } = await changePassword(currentPassword, newPassword);
     if (error) {
       setPasswordError(error);
     } else {
       setPasswordSuccess(true);
+      setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
     }
@@ -116,6 +122,15 @@ export function ProfilePage() {
         </h2>
         <div className="space-y-3">
           <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">{t("profile.currentPassword")}</label>
+            <input
+              type="password"
+              value={currentPassword}
+              onChange={(e) => { setCurrentPassword(e.target.value); setPasswordSuccess(false); }}
+              className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+            />
+          </div>
+          <div>
             <label className="mb-1 block text-sm font-medium text-gray-700">{t("profile.newPassword")}</label>
             <input
               type="password"
@@ -138,7 +153,7 @@ export function ProfilePage() {
           <button
             type="button"
             onClick={handleChangePassword}
-            disabled={passwordLoading || !newPassword}
+            disabled={passwordLoading || !currentPassword || !newPassword}
             className="w-full rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
           >
             {passwordLoading ? t("profile.updatingPassword") : t("profile.updatePassword")}

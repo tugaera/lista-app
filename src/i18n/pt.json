@@ -69,6 +69,8 @@
   "profile.passwordUpdated": "Palavra-passe atualizada com sucesso",
   "profile.passwordMismatch": "As palavras-passe não coincidem",
   "profile.passwordTooShort": "A palavra-passe deve ter pelo menos 6 caracteres",
+  "profile.currentPasswordRequired": "A palavra-passe atual é obrigatória",
+  "profile.currentPasswordIncorrect": "A palavra-passe atual está incorreta",
   "profile.account": "Conta",
   "profile.preferences": "Preferências",
   "profile.email": "Email",
