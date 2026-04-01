@@ -177,32 +177,12 @@ export function ProfilePage({ invites, invitedUsers = [] }: ProfilePageProps) {
           </section>
 
           <section className="mb-6">
-            <InviteList invites={invites} />
+            <InviteList
+              invites={invites}
+              usedByEmails={Object.fromEntries(invitedUsers.map((u) => [u.id, u.email]))}
+            />
           </section>
         </>
-      )}
-
-      {/* Invited users */}
-      {isAdminOrModerator && invitedUsers.length > 0 && (
-        <section className="rounded-2xl border border-gray-200 bg-white p-5">
-          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-gray-400">
-            {t("profile.invitedUsers")}
-          </h2>
-          <div className="divide-y divide-gray-100">
-            {invitedUsers.map((user) => (
-              <div key={user.id} className="flex items-center justify-between py-3">
-                <div>
-                  <p className="text-sm font-medium text-gray-900">{user.email}</p>
-                  <p className="text-xs text-gray-500">
-                    {t("admin.joined")} {new Date(user.created_at).toLocaleDateString(locale, {
-                      year: "numeric", month: "short", day: "numeric",
-                    })}
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
       )}
     </div>
   );
