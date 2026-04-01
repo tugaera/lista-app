@@ -1,6 +1,6 @@
 {
-  "name": "Lista - Shopping Assistant",
-  "short_name": "Lista",
+  "name": "Meu Cesto",
+  "short_name": "Meu Cesto",
   "start_url": "/shopping",
   "display": "standalone",
   "background_color": "#f9fafb",

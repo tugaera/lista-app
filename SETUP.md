@@ -1,4 +1,4 @@
-# Lista App - Setup Guide
+# Meu Cesto - Setup Guide
 
 ## Prerequisites
 - Node.js 18+

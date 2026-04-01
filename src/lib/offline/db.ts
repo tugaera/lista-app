@@ -18,12 +18,12 @@ export interface OfflineCartItem {
   createdAt: string;
 }
 
-class ListaOfflineDB extends Dexie {
+class MeuCestoOfflineDB extends Dexie {
   pendingMutations!: EntityTable<PendingMutation, "id">;
   offlineCartItems!: EntityTable<OfflineCartItem, "id">;
 
   constructor() {
-    super("lista-offline");
+    super("meu-cesto-offline");
 
     this.version(1).stores({
       pendingMutations: "++id, table, operation, timestamp",
@@ -32,6 +32,6 @@ class ListaOfflineDB extends Dexie {
   }
 }
 
-const db = new ListaOfflineDB();
+const db = new MeuCestoOfflineDB();
 
 export default db;

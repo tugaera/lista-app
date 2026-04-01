@@ -8,6 +8,7 @@ import { Modal } from "@/components/ui/modal";
 import { Spinner } from "@/components/ui/spinner";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useDebounce } from "@/hooks/useDebounce";
+import { useT } from "@/i18n/i18n-provider";
 import dynamic from "next/dynamic";
 const BarcodeScanner = dynamic(
   () => import("@/features/shopping/components/barcode-scanner").then((m) => ({ default: m.BarcodeScanner })),
@@ -28,6 +29,7 @@ interface ProductsPageProps {
 }
 
 export function ProductsPage({ categories }: ProductsPageProps) {
+  const { t } = useT();
   const [query, setQuery] = useState("");
   const debouncedQuery = useDebounce(query, 300);
   const [products, setProducts] = useState<ProductWithLatestPrice[]>([]);
@@ -111,25 +113,25 @@ export function ProductsPage({ categories }: ProductsPageProps) {
     const result = await lookupBarcode(barcode);
     if (result.found) {
       setNewName(result.name);
-      setAddLookupStatus(`Already in DB: "${result.name}"`);
+      setAddLookupStatus(`${t("products.alreadyInDB")} "${result.name}"`);
     } else if (result.name) {
       setNewName(result.name);
-      setAddLookupStatus(`Found on Open Food Facts: "${result.name}"`);
+      setAddLookupStatus(`${t("products.foundOnOFF")} "${result.name}"`);
     } else {
-      setAddLookupStatus("Product not found — enter the name below");
+      setAddLookupStatus(t("products.notFoundHint"));
     }
   }
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-6">
       <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Products</h1>
-        <Button onClick={() => setAddOpen(true)}>Add Product</Button>
+        <h1 className="text-2xl font-bold text-gray-900">{t("products.title")}</h1>
+        <Button onClick={() => setAddOpen(true)}>{t("products.addProduct")}</Button>
       </div>
 
       <div className="mb-6">
         <Input
-          placeholder="Search products..."
+          placeholder={t("products.search")}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
@@ -156,14 +158,14 @@ export function ProductsPage({ categories }: ProductsPageProps) {
               />
             </svg>
           }
-          title="No products found"
+          title={t("products.noResults")}
           description={
             query
-              ? "Try a different search term or add a new product."
-              : "Start by adding your first product."
+              ? t("products.noResultsHint")
+              : t("products.noProductsHint")
           }
           action={
-            <Button onClick={() => setAddOpen(true)}>Add Product</Button>
+            <Button onClick={() => setAddOpen(true)}>{t("products.addProduct")}</Button>
           }
         />
       ) : (
@@ -203,7 +205,7 @@ export function ProductsPage({ categories }: ProductsPageProps) {
                           d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0 1 3.75 9.375v-4.5ZM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 0 1-1.125-1.125v-4.5ZM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0 1 13.5 9.375v-4.5Z"
                         />
                       </svg>
-                      Barcode
+                      {t("products.barcode")}
                     </span>
                   )}
                 </div>
@@ -245,7 +247,7 @@ export function ProductsPage({ categories }: ProductsPageProps) {
           setDetailOpen(false);
           setSelectedProduct(null);
         }}
-        title={selectedProduct?.name ?? "Product Details"}
+        title={selectedProduct?.name ?? t("products.productDetails")}
       >
         {detailLoading ? (
           <div className="flex justify-center py-8">
@@ -256,7 +258,7 @@ export function ProductsPage({ categories }: ProductsPageProps) {
             <div className="mb-4 space-y-2">
               {selectedProduct.category_name && (
                 <p className="text-sm text-gray-500">
-                  Category:{" "}
+                  {t("products.category")}:{" "}
                   <span className="font-medium text-gray-700">
                     {selectedProduct.category_name}
                   </span>
@@ -264,7 +266,7 @@ export function ProductsPage({ categories }: ProductsPageProps) {
               )}
               {selectedProduct.barcode && (
                 <p className="text-sm text-gray-500">
-                  Barcode:{" "}
+                  {t("products.barcode")}:{" "}
                   <span className="font-mono font-medium text-gray-700">
                     {selectedProduct.barcode}
                   </span>
@@ -273,10 +275,10 @@ export function ProductsPage({ categories }: ProductsPageProps) {
             </div>
 
             <h3 className="mb-2 text-sm font-semibold text-gray-900">
-              Price History
+              {t("products.priceHistory")}
             </h3>
             {selectedProduct.entries.length === 0 ? (
-              <p className="text-sm text-gray-400">No price entries yet.</p>
+              <p className="text-sm text-gray-400">{t("products.noPriceHistory")}</p>
             ) : (
               <div className="max-h-64 space-y-2 overflow-y-auto">
                 {selectedProduct.entries.map((entry) => {
@@ -330,21 +332,20 @@ export function ProductsPage({ categories }: ProductsPageProps) {
           setAddError(null);
           setAddLookupStatus(null);
         }}
-        title="Add Product"
+        title={t("products.addProduct")}
       >
         <div className="space-y-4">
           {/* Barcode first so scanning auto-fills name */}
           <div className="flex flex-col gap-1.5">
             <label className="text-sm font-medium text-gray-700">
-              Barcode{" "}
-              <span className="font-normal text-gray-400">(scan to auto-fill name)</span>
+              {t("products.barcodeScanHint")}
             </label>
             <div className="flex gap-2">
               <input
                 type="text"
                 value={newBarcode}
                 onChange={(e) => setNewBarcode(e.target.value)}
-                placeholder="Optional"
+                placeholder={t("common.optional")}
                 className="min-w-0 flex-1 rounded-xl border border-gray-300 px-4 py-2 font-mono text-sm text-gray-900 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
               />
               <button
@@ -360,7 +361,7 @@ export function ProductsPage({ categories }: ProductsPageProps) {
                   <line x1="13" y1="8" x2="13" y2="16" />
                   <line x1="16" y1="8" x2="16" y2="16" />
                 </svg>
-                Scan
+                {t("products.scan")}
               </button>
             </div>
             {addLookupStatus && (
@@ -370,22 +371,22 @@ export function ProductsPage({ categories }: ProductsPageProps) {
             )}
           </div>
           <Input
-            label="Name"
-            placeholder="Product name"
+            label={t("common.name")}
+            placeholder={t("products.productName")}
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
             error={addError ?? undefined}
           />
           <div className="flex flex-col gap-1.5">
             <label className="text-sm font-medium text-gray-700">
-              Category (optional)
+              {t("products.categoryOptional")}
             </label>
             <select
               value={newCategoryId}
               onChange={(e) => setNewCategoryId(e.target.value)}
               className="w-full rounded-xl border border-gray-300 px-4 py-2 text-gray-900 transition focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
             >
-              <option value="">No category</option>
+              <option value="">{t("common.noCategory")}</option>
               {categories.map((cat) => (
                 <option key={cat.id} value={cat.id}>
                   {cat.name}
@@ -402,10 +403,10 @@ export function ProductsPage({ categories }: ProductsPageProps) {
                 setAddLookupStatus(null);
               }}
             >
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button onClick={handleAddProduct} loading={addLoading}>
-              Add Product
+              {t("products.addProduct")}
             </Button>
           </div>
         </div>

@@ -247,6 +247,7 @@ export interface Database {
           email: string;
           role: "admin" | "moderator" | "user";
           invited_by: string | null;
+          language: string;
           created_at: string;
         };
         Insert: {
@@ -254,6 +255,7 @@ export interface Database {
           email: string;
           role?: "admin" | "moderator" | "user";
           invited_by?: string | null;
+          language?: string;
           created_at?: string;
         };
         Update: {
@@ -261,6 +263,7 @@ export interface Database {
           email?: string;
           role?: "admin" | "moderator" | "user";
           invited_by?: string | null;
+          language?: string;
           created_at?: string;
         };
         Relationships: [];

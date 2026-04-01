@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <!-- Background rounded rect -->
+  <rect width="512" height="512" rx="96" fill="#059669"/>
+  <!-- Basket handles -->
+  <path d="M160 230 Q160 96 256 96 Q352 96 352 230" stroke="white" stroke-width="36" stroke-linecap="round" fill="none"/>
+  <!-- Basket body -->
+  <rect x="80" y="230" width="352" height="196" rx="40" fill="white"/>
+  <!-- Basket weave lines horizontal -->
+  <line x1="80" y1="296" x2="432" y2="296" stroke="#059669" stroke-width="14" opacity="0.35"/>
+  <line x1="80" y1="362" x2="432" y2="362" stroke="#059669" stroke-width="14" opacity="0.35"/>
+  <!-- Basket weave lines vertical -->
+  <line x1="168" y1="230" x2="168" y2="426" stroke="#059669" stroke-width="14" opacity="0.35"/>
+  <line x1="256" y1="230" x2="256" y2="426" stroke="#059669" stroke-width="14" opacity="0.35"/>
+  <line x1="344" y1="230" x2="344" y2="426" stroke="#059669" stroke-width="14" opacity="0.35"/>
+</svg>

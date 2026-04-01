@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useT } from "@/i18n/i18n-provider";
 
 interface DiscountResult {
   originalPrice: number;
@@ -110,6 +111,7 @@ export function DiscountModal({ initialPrice, initialFinalPrice, onConfirm, onRe
     amount:   initAmt,
   });
 
+  const { t } = useT();
   const firstRef = useRef<HTMLInputElement>(null);
   useEffect(() => { firstRef.current?.focus(); }, []);
 
@@ -141,7 +143,7 @@ export function DiscountModal({ initialPrice, initialFinalPrice, onConfirm, onRe
     >
       <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
         <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-base font-semibold text-gray-900">Add discount</h3>
+          <h3 className="text-base font-semibold text-gray-900">{t("discount.title")}</h3>
           <button
             type="button"
             onClick={onClose}
@@ -154,13 +156,13 @@ export function DiscountModal({ initialPrice, initialFinalPrice, onConfirm, onRe
         </div>
 
         <p className="mb-4 text-xs text-gray-400">
-          Fill any field — the others are calculated automatically.
+          {t("discount.hint")}
         </p>
 
         <div className="grid grid-cols-2 gap-3">
           {/* Original price */}
           <div>
-            <p className={labelClass}>Price without discount</p>
+            <p className={labelClass}>{t("discount.priceWithout")}</p>
             <div className="relative">
               <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">€</span>
               <input
@@ -179,7 +181,7 @@ export function DiscountModal({ initialPrice, initialFinalPrice, onConfirm, onRe
 
           {/* Final price */}
           <div>
-            <p className={labelClass}>Price with discount</p>
+            <p className={labelClass}>{t("discount.priceWith")}</p>
             <div className="relative">
               <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-orange-400">€</span>
               <input
@@ -201,7 +203,7 @@ export function DiscountModal({ initialPrice, initialFinalPrice, onConfirm, onRe
 
           {/* Discount % */}
           <div>
-            <p className={labelClass}>Percentage discount</p>
+            <p className={labelClass}>{t("discount.percentage")}</p>
             <div className="relative">
               <input
                 type="number"
@@ -220,7 +222,7 @@ export function DiscountModal({ initialPrice, initialFinalPrice, onConfirm, onRe
 
           {/* Discount amount */}
           <div>
-            <p className={labelClass}>Amount discount</p>
+            <p className={labelClass}>{t("discount.amount")}</p>
             <div className="relative">
               <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">€</span>
               <input
@@ -246,7 +248,7 @@ export function DiscountModal({ initialPrice, initialFinalPrice, onConfirm, onRe
               <span className="font-bold text-orange-600">€{fin.toFixed(2)}</span>
               {orig > fin && (
                 <span className="ml-2 text-emerald-600">
-                  you save €{(orig - fin).toFixed(2)} ({Math.round((1 - fin / orig) * 100)}%)
+                  {t("discount.youSave")}{(orig - fin).toFixed(2)} ({Math.round((1 - fin / orig) * 100)}%)
                 </span>
               )}
             </p>
@@ -259,7 +261,7 @@ export function DiscountModal({ initialPrice, initialFinalPrice, onConfirm, onRe
             onClick={() => { onReset(); onClose(); }}
             className="mt-4 w-full rounded-xl border border-red-200 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50"
           >
-            Remove Discount
+            {t("discount.remove")}
           </button>
         )}
 
@@ -269,7 +271,7 @@ export function DiscountModal({ initialPrice, initialFinalPrice, onConfirm, onRe
             onClick={onClose}
             className="flex-1 rounded-xl border border-gray-200 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
           >
-            Cancel
+            {t("common.cancel")}
           </button>
           <button
             type="button"
@@ -277,7 +279,7 @@ export function DiscountModal({ initialPrice, initialFinalPrice, onConfirm, onRe
             disabled={!valid}
             className="flex-1 rounded-xl bg-orange-500 py-2.5 text-sm font-medium text-white hover:bg-orange-600 disabled:opacity-40"
           >
-            Apply
+            {t("discount.apply")}
           </button>
         </div>
       </div>

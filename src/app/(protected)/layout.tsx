@@ -3,6 +3,8 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { BottomNav } from "@/components/layout/bottom-nav";
 import { Sidebar } from "@/components/layout/sidebar";
 import { UserProvider } from "@/features/users/components/user-provider";
+import { I18nProvider } from "@/i18n/i18n-provider";
+import type { Locale } from "@/i18n";
 import type { Profile } from "@/types/database";
 import { OfflineBanner } from "@/components/ui/offline-banner";
 import { SyncManager } from "@/components/sync-manager";
@@ -65,19 +67,24 @@ export default async function ProtectedLayout({
       email: user.email ?? "",
       role: "user",
       invited_by: null,
+      language: "pt",
       created_at: new Date().toISOString(),
     };
   }
 
+  const userLocale = (profile.language === "en" || profile.language === "pt" ? profile.language : "pt") as Locale;
+
   return (
     <UserProvider profile={profile}>
-      <div className="min-h-screen bg-gray-50">
-        <Sidebar />
-        <main className="lg:ml-64 pb-20 lg:pb-0 min-h-screen">{children}</main>
-        <BottomNav />
-        <OfflineBanner />
-        <SyncManager />
-      </div>
+      <I18nProvider initialLocale={userLocale}>
+        <div className="min-h-screen bg-gray-50">
+          <Sidebar />
+          <main className="lg:ml-64 pb-20 lg:pb-0 min-h-screen">{children}</main>
+          <BottomNav />
+          <OfflineBanner />
+          <SyncManager />
+        </div>
+      </I18nProvider>
     </UserProvider>
   );
 }

@@ -1,5 +1,5 @@
 -- ============================================================
--- Lista App - Full Database Schema
+-- Meu Cesto - Full Database Schema
 -- PostgreSQL via Supabase
 -- Run this on a fresh Supabase project for a clean install.
 -- ============================================================
@@ -24,6 +24,7 @@ create table profiles (
   email      text not null,
   role       public.user_role not null default 'user',
   invited_by uuid references profiles(id) on delete set null,
+  language   text not null default 'pt',
   created_at timestamptz not null default now()
 );
 
