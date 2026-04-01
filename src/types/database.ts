@@ -526,6 +526,14 @@ export interface Database {
         Args: Record<string, never>;
         Returns: unknown;
       };
+      get_shared_finalized_carts: {
+        Args: Record<string, never>;
+        Returns: unknown;
+      };
+      get_cart_by_id: {
+        Args: { p_cart_id: string };
+        Returns: unknown;
+      };
       leave_shared_cart: {
         Args: { p_cart_id: string };
         Returns: void;
