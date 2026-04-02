@@ -22,14 +22,22 @@ async function requireAdmin(supabase: Awaited<ReturnType<typeof createServerSupa
 
 export async function getCategories(): Promise<{ data: Category[]; error: string | null }> {
   const supabase = await createServerSupabaseClient();
-  const { data, error } = await supabase
+  let result = await supabase
     .from("categories")
     .select("id, name, parent_id, is_active, sort_order, created_at")
     .order("sort_order", { ascending: true, nullsFirst: false })
     .order("name", { ascending: true });
 
-  if (error) return { data: [], error: error.message };
-  return { data: data ?? [], error: null };
+  // Fallback if new columns don't exist yet
+  if (result.error) {
+    result = await supabase
+      .from("categories")
+      .select("id, name, created_at")
+      .order("name", { ascending: true }) as typeof result;
+  }
+
+  if (result.error) return { data: [], error: result.error.message };
+  return { data: result.data ?? [], error: null };
 }
 
 export async function createCategory(

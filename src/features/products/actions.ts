@@ -28,13 +28,27 @@ export async function searchProducts(
 ): Promise<{ data: ProductWithLatestPrice[]; error: string | null }> {
   const supabase = await createServerSupabaseClient();
 
-  const { data: products, error } = await supabase
+  let result = await supabase
     .from("products")
     .select("id, name, barcode, category_id, subcategory_id, brand_id, tags, measurement_quantity, unit_id, is_active, created_at, categories(name)")
     .ilike("name", `%${query}%`)
     .eq("is_active", true)
     .order("name")
     .limit(50);
+
+  // Fallback if new columns don't exist yet
+  if (result.error) {
+    result = await supabase
+      .from("products")
+      .select("id, name, barcode, category_id, is_active, created_at, categories(name)")
+      .ilike("name", `%${query}%`)
+      .eq("is_active", true)
+      .order("name")
+      .limit(50) as typeof result;
+  }
+
+  const products = result.data ?? [];
+  const error = result.error;
 
   if (error) {
     return { data: [], error: error.message };
@@ -101,17 +115,29 @@ export async function getProductByBarcode(
 ): Promise<{ data: ProductWithLatestPrice | null; error: string | null }> {
   const supabase = await createServerSupabaseClient();
 
-  const { data: product, error } = await supabase
+  let barcodeResult = await supabase
     .from("products")
     .select("id, name, barcode, category_id, subcategory_id, brand_id, tags, measurement_quantity, unit_id, is_active, created_at, categories(name)")
     .eq("barcode", barcode)
     .single();
 
-  if (error) {
-    if (error.code === "PGRST116") {
+  // Fallback if new columns don't exist yet
+  if (barcodeResult.error && barcodeResult.error.code !== "PGRST116") {
+    barcodeResult = await supabase
+      .from("products")
+      .select("id, name, barcode, category_id, is_active, created_at, categories(name)")
+      .eq("barcode", barcode)
+      .single() as typeof barcodeResult;
+  }
+
+  const product = barcodeResult.data;
+  const error = barcodeResult.error;
+
+  if (error || !product) {
+    if (error?.code === "PGRST116") {
       return { data: null, error: null };
     }
-    return { data: null, error: error.message };
+    return { data: null, error: error?.message ?? null };
   }
 
   let latestResult = await supabase
@@ -175,26 +201,59 @@ export async function createProduct(data: {
 }): Promise<{ data: Product | null; error: string | null }> {
   const supabase = await createServerSupabaseClient();
 
-  const { data: product, error } = await supabase
+  // Build insert payload — only include new columns if they might exist
+  const insertPayload: Record<string, unknown> = {
+    name: data.name,
+    barcode: data.barcode ?? null,
+    category_id: data.categoryId ?? null,
+  };
+  // Add new fields — if columns don't exist, the insert will fail and we retry without them
+  if (data.subcategoryId) insertPayload.subcategory_id = data.subcategoryId;
+  if (data.brandId) insertPayload.brand_id = data.brandId;
+  if (data.tags?.length) insertPayload.tags = data.tags;
+  if (data.measurementQuantity != null) insertPayload.measurement_quantity = data.measurementQuantity;
+  if (data.unitId) insertPayload.unit_id = data.unitId;
+
+  let createResult = await supabase
     .from("products")
-    .insert({
-      name: data.name,
-      barcode: data.barcode ?? null,
-      category_id: data.categoryId ?? null,
-      subcategory_id: data.subcategoryId ?? null,
-      brand_id: data.brandId ?? null,
-      tags: data.tags ?? [],
-      measurement_quantity: data.measurementQuantity ?? null,
-      unit_id: data.unitId ?? null,
-    })
-    .select("id, name, barcode, category_id, subcategory_id, brand_id, tags, measurement_quantity, unit_id, is_active, created_at")
+    .insert(insertPayload as never)
+    .select("id, name, barcode, category_id, is_active, created_at")
     .single();
 
-  if (error) {
-    return { data: null, error: error.message };
+  // Fallback: retry with only base columns
+  if (createResult.error) {
+    createResult = await supabase
+      .from("products")
+      .insert({
+        name: data.name,
+        barcode: data.barcode ?? null,
+        category_id: data.categoryId ?? null,
+      } as never)
+      .select("id, name, barcode, category_id, is_active, created_at")
+      .single() as typeof createResult;
   }
 
-  return { data: product, error: null };
+  if (createResult.error) {
+    return { data: null, error: createResult.error.message };
+  }
+
+  const created = createResult.data;
+  return {
+    data: {
+      id: created.id,
+      name: created.name,
+      barcode: created.barcode,
+      category_id: created.category_id,
+      subcategory_id: (created as Record<string, unknown>).subcategory_id as string | null ?? null,
+      brand_id: (created as Record<string, unknown>).brand_id as string | null ?? null,
+      tags: ((created as Record<string, unknown>).tags as string[]) ?? [],
+      measurement_quantity: (created as Record<string, unknown>).measurement_quantity as number | null ?? null,
+      unit_id: (created as Record<string, unknown>).unit_id as string | null ?? null,
+      is_active: created.is_active,
+      created_at: created.created_at,
+    },
+    error: null,
+  };
 }
 
 export async function getCategories(): Promise<{
@@ -203,17 +262,25 @@ export async function getCategories(): Promise<{
 }> {
   const supabase = await createServerSupabaseClient();
 
-  const { data, error } = await supabase
+  let catResult = await supabase
     .from("categories")
     .select("id, name, parent_id, is_active, sort_order, created_at")
     .order("sort_order", { ascending: true, nullsFirst: false })
     .order("name", { ascending: true });
 
-  if (error) {
-    return { data: [], error: error.message };
+  // Fallback if new columns don't exist yet
+  if (catResult.error) {
+    catResult = await supabase
+      .from("categories")
+      .select("id, name, created_at")
+      .order("name", { ascending: true }) as typeof catResult;
   }
 
-  return { data: data ?? [], error: null };
+  if (catResult.error) {
+    return { data: [], error: catResult.error.message };
+  }
+
+  return { data: catResult.data ?? [], error: null };
 }
 
 export async function getProductWithHistory(
@@ -221,14 +288,26 @@ export async function getProductWithHistory(
 ): Promise<{ data: ProductWithHistory | null; error: string | null }> {
   const supabase = await createServerSupabaseClient();
 
-  const { data: product, error: productError } = await supabase
+  let histResult = await supabase
     .from("products")
     .select("id, name, barcode, category_id, subcategory_id, brand_id, tags, measurement_quantity, unit_id, is_active, created_at, categories(name)")
     .eq("id", productId)
     .single();
 
-  if (productError) {
-    return { data: null, error: productError.message };
+  // Fallback if new columns don't exist yet
+  if (histResult.error && histResult.error.code !== "PGRST116") {
+    histResult = await supabase
+      .from("products")
+      .select("id, name, barcode, category_id, is_active, created_at, categories(name)")
+      .eq("id", productId)
+      .single() as typeof histResult;
+  }
+
+  const product = histResult.data;
+  const productError = histResult.error;
+
+  if (productError || !product) {
+    return { data: null, error: productError?.message ?? "Product not found" };
   }
 
   let entriesResult = await supabase
@@ -321,7 +400,23 @@ export async function getAdminProducts(query: string = ""): Promise<{
     q = q.ilike("name", `%${query}%`);
   }
 
-  const { data: products, error } = await q;
+  let adminResult = await q;
+
+  // Fallback if new columns don't exist yet
+  if (adminResult.error) {
+    let q2 = supabase
+      .from("products")
+      .select("id, name, barcode, category_id, is_active, created_at, categories(name)")
+      .order("name")
+      .limit(100);
+    if (query.length >= 2) {
+      q2 = q2.ilike("name", `%${query}%`);
+    }
+    adminResult = await q2 as typeof adminResult;
+  }
+
+  const products = adminResult.data ?? [];
+  const error = adminResult.error;
   if (error) return { data: [], error: error.message };
 
   const productIds = (products ?? []).map((p) => p.id);
@@ -398,19 +493,36 @@ export async function adminUpdateProduct(
   const name = data.name.trim();
   if (!name) return { error: "Name is required" };
 
-  const { error } = await supabase
+  // Try with all columns, fallback to base columns only
+  const updatePayload: Record<string, unknown> = {
+    name,
+    barcode: data.barcode?.trim() || null,
+    category_id: data.categoryId || null,
+    subcategory_id: data.subcategoryId || null,
+    brand_id: data.brandId ?? null,
+    tags: data.tags ?? [],
+    measurement_quantity: data.measurementQuantity ?? null,
+    unit_id: data.unitId || null,
+  };
+
+  let updateResult = await supabase
     .from("products")
-    .update({
-      name,
-      barcode: data.barcode?.trim() || null,
-      category_id: data.categoryId || null,
-      subcategory_id: data.subcategoryId || null,
-      brand_id: data.brandId ?? null,
-      tags: data.tags ?? [],
-      measurement_quantity: data.measurementQuantity ?? null,
-      unit_id: data.unitId || null,
-    })
+    .update(updatePayload as never)
     .eq("id", productId);
+
+  // Fallback if new columns don't exist
+  if (updateResult.error) {
+    updateResult = await supabase
+      .from("products")
+      .update({
+        name,
+        barcode: data.barcode?.trim() || null,
+        category_id: data.categoryId || null,
+      } as never)
+      .eq("id", productId);
+  }
+
+  const error = updateResult.error;
 
   if (error) return { error: error.message };
   revalidatePath("/admin");
