@@ -13,16 +13,75 @@ export interface Database {
         Row: {
           id: string;
           name: string;
+          parent_id: string | null;
+          is_active: boolean;
+          sort_order: number | null;
           created_at: string;
         };
         Insert: {
           id?: string;
           name: string;
+          parent_id?: string | null;
+          is_active?: boolean;
+          sort_order?: number | null;
           created_at?: string;
         };
         Update: {
           id?: string;
           name?: string;
+          parent_id?: string | null;
+          is_active?: boolean;
+          sort_order?: number | null;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "categories_parent_id_fkey";
+            columns: ["parent_id"];
+            isOneToOne: false;
+            referencedRelation: "categories";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      brands: {
+        Row: {
+          id: string;
+          name: string;
+          is_active: boolean;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          name: string;
+          is_active?: boolean;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          name?: string;
+          is_active?: boolean;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      units: {
+        Row: {
+          id: string;
+          name: string;
+          abbreviation: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          name: string;
+          abbreviation: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          name?: string;
+          abbreviation?: string;
           created_at?: string;
         };
         Relationships: [];
@@ -57,6 +116,11 @@ export interface Database {
           name: string;
           barcode: string | null;
           category_id: string | null;
+          subcategory_id: string | null;
+          brand_id: string | null;
+          tags: string[];
+          measurement_quantity: number | null;
+          unit_id: string | null;
           is_active: boolean;
           created_at: string;
         };
@@ -65,6 +129,11 @@ export interface Database {
           name: string;
           barcode?: string | null;
           category_id?: string | null;
+          subcategory_id?: string | null;
+          brand_id?: string | null;
+          tags?: string[];
+          measurement_quantity?: number | null;
+          unit_id?: string | null;
           is_active?: boolean;
           created_at?: string;
         };
@@ -73,6 +142,11 @@ export interface Database {
           name?: string;
           barcode?: string | null;
           category_id?: string | null;
+          subcategory_id?: string | null;
+          brand_id?: string | null;
+          tags?: string[];
+          measurement_quantity?: number | null;
+          unit_id?: string | null;
           is_active?: boolean;
           created_at?: string;
         };
@@ -82,6 +156,27 @@ export interface Database {
             columns: ["category_id"];
             isOneToOne: false;
             referencedRelation: "categories";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "products_subcategory_id_fkey";
+            columns: ["subcategory_id"];
+            isOneToOne: false;
+            referencedRelation: "categories";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "products_brand_id_fkey";
+            columns: ["brand_id"];
+            isOneToOne: false;
+            referencedRelation: "brands";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "products_unit_id_fkey";
+            columns: ["unit_id"];
+            isOneToOne: false;
+            referencedRelation: "units";
             referencedColumns: ["id"];
           },
         ];
@@ -647,6 +742,14 @@ export type Views<
 export type Category = Tables<"categories">;
 export type CategoryInsert = TablesInsert<"categories">;
 export type CategoryUpdate = TablesUpdate<"categories">;
+
+export type Brand = Tables<"brands">;
+export type BrandInsert = TablesInsert<"brands">;
+export type BrandUpdate = TablesUpdate<"brands">;
+
+export type Unit = Tables<"units">;
+export type UnitInsert = TablesInsert<"units">;
+export type UnitUpdate = TablesUpdate<"units">;
 
 export type Store = Tables<"stores">;
 export type StoreInsert = TablesInsert<"stores">;

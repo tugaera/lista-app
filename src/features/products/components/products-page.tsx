@@ -33,11 +33,14 @@ import {
   type ProductDependencies,
   type PriceEntryData,
 } from "@/features/products/actions";
-import type { Category, ProductEntry } from "@/types/database";
+import type { Category, ProductEntry, Brand, Unit } from "@/types/database";
 import type { Store } from "@/features/stores/actions";
+import { getOrCreateBrand } from "@/features/brands/actions";
 
 interface ProductsPageProps {
   categories: Category[];
+  brands: Brand[];
+  units: Unit[];
   stores?: Store[];
 }
 
@@ -69,7 +72,7 @@ function todayISODate() {
   return new Date().toISOString().slice(0, 16);
 }
 
-export function ProductsPage({ categories, stores = [] }: ProductsPageProps) {
+export function ProductsPage({ categories, brands, units, stores = [] }: ProductsPageProps) {
   const { t } = useT();
   const { isAdminOrModerator } = useUser();
 
@@ -89,6 +92,12 @@ export function ProductsPage({ categories, stores = [] }: ProductsPageProps) {
   const [editName, setEditName] = useState("");
   const [editBarcode, setEditBarcode] = useState("");
   const [editCategoryId, setEditCategoryId] = useState("");
+  const [editSubcategoryId, setEditSubcategoryId] = useState("");
+  const [editBrandSearch, setEditBrandSearch] = useState("");
+  const [editBrandId, setEditBrandId] = useState<string | null>(null);
+  const [editTags, setEditTags] = useState("");
+  const [editMeasurementQty, setEditMeasurementQty] = useState("");
+  const [editUnitId, setEditUnitId] = useState("");
   const [editLoading, setEditLoading] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [editScanning, setEditScanning] = useState(false);
@@ -110,6 +119,12 @@ export function ProductsPage({ categories, stores = [] }: ProductsPageProps) {
   const [newName, setNewName] = useState("");
   const [newBarcode, setNewBarcode] = useState("");
   const [newCategoryId, setNewCategoryId] = useState("");
+  const [newSubcategoryId, setNewSubcategoryId] = useState("");
+  const [newBrandSearch, setNewBrandSearch] = useState("");
+  const [newBrandId, setNewBrandId] = useState<string | null>(null);
+  const [newTags, setNewTags] = useState("");
+  const [newMeasurementQty, setNewMeasurementQty] = useState("");
+  const [newUnitId, setNewUnitId] = useState("");
 
   // Toggle active (admin only)
   const [toggling, setToggling] = useState<Set<string>>(new Set());
@@ -164,6 +179,12 @@ export function ProductsPage({ categories, stores = [] }: ProductsPageProps) {
     setEditName(selectedProduct.name);
     setEditBarcode(selectedProduct.barcode ?? "");
     setEditCategoryId(selectedProduct.category_id ?? "");
+    setEditSubcategoryId(selectedProduct.subcategory_id ?? "");
+    setEditBrandId(selectedProduct.brand_id ?? null);
+    setEditBrandSearch(selectedProduct.brand_name ?? "");
+    setEditTags((selectedProduct.tags ?? []).join(", "));
+    setEditMeasurementQty(selectedProduct.measurement_quantity != null ? String(selectedProduct.measurement_quantity) : "");
+    setEditUnitId(selectedProduct.unit_id ?? "");
     setEditError(null);
   }
 
@@ -178,10 +199,28 @@ export function ProductsPage({ categories, stores = [] }: ProductsPageProps) {
     if (!selectedProduct) return;
     setEditLoading(true);
     setEditError(null);
+
+    // Auto-create brand if user typed a name but no existing brand was selected
+    let resolvedBrandId = editBrandId;
+    if (editBrandSearch.trim() && !resolvedBrandId) {
+      const brandResult = await getOrCreateBrand(editBrandSearch);
+      if (brandResult.error) { setEditError(brandResult.error); setEditLoading(false); return; }
+      resolvedBrandId = brandResult.id;
+    }
+    if (!editBrandSearch.trim()) resolvedBrandId = null;
+
+    const parsedTags = editTags.split(",").map((t) => t.trim().toLowerCase()).filter(Boolean);
+    const parsedMeasurement = editMeasurementQty ? parseFloat(editMeasurementQty) : null;
+
     const result = await adminUpdateProduct(selectedProduct.id, {
       name: editName,
       barcode: editBarcode,
       categoryId: editCategoryId,
+      subcategoryId: editSubcategoryId,
+      brandId: resolvedBrandId,
+      tags: parsedTags,
+      measurementQuantity: parsedMeasurement,
+      unitId: editUnitId,
     });
     if (result.error) {
       setEditError(result.error);
@@ -190,17 +229,26 @@ export function ProductsPage({ categories, stores = [] }: ProductsPageProps) {
     }
     // Update local state
     const catName = categories.find((c) => c.id === editCategoryId)?.name ?? null;
+    const brandName = resolvedBrandId ? (brands.find((b) => b.id === resolvedBrandId)?.name ?? editBrandSearch) : null;
+    const unitAbbr = editUnitId ? (units.find((u) => u.id === editUnitId)?.abbreviation ?? null) : null;
     setSelectedProduct({
       ...selectedProduct,
       name: editName,
       barcode: editBarcode || null,
       category_id: editCategoryId || null,
+      subcategory_id: editSubcategoryId || null,
+      brand_id: resolvedBrandId,
+      brand_name: brandName,
+      tags: parsedTags,
+      measurement_quantity: parsedMeasurement,
+      unit_id: editUnitId || null,
+      unit_abbreviation: unitAbbr,
       category_name: catName,
     });
     setProducts((prev) =>
       prev.map((p) =>
         p.id === selectedProduct.id
-          ? { ...p, name: editName, barcode: editBarcode || null, category_id: editCategoryId || null, category_name: catName }
+          ? { ...p, name: editName, barcode: editBarcode || null, category_id: editCategoryId || null, category_name: catName, brand_name: brandName }
           : p,
       ),
     );
@@ -347,10 +395,27 @@ export function ProductsPage({ categories, stores = [] }: ProductsPageProps) {
     }
     setAddLoading(true);
     setAddError(null);
+
+    // Auto-create brand if typed
+    let resolvedBrandId = newBrandId;
+    if (newBrandSearch.trim() && !resolvedBrandId) {
+      const brandResult = await getOrCreateBrand(newBrandSearch);
+      if (brandResult.error) { setAddError(brandResult.error); setAddLoading(false); return; }
+      resolvedBrandId = brandResult.id;
+    }
+
+    const parsedTags = newTags.split(",").map((t) => t.trim().toLowerCase()).filter(Boolean);
+    const parsedMeasurement = newMeasurementQty ? parseFloat(newMeasurementQty) : null;
+
     const { error } = await createProduct({
       name: newName.trim(),
       barcode: newBarcode.trim() || undefined,
       categoryId: newCategoryId || undefined,
+      subcategoryId: newSubcategoryId || undefined,
+      brandId: resolvedBrandId,
+      tags: parsedTags,
+      measurementQuantity: parsedMeasurement,
+      unitId: newUnitId || undefined,
     });
     if (error) {
       setAddError(error);
@@ -361,6 +426,12 @@ export function ProductsPage({ categories, stores = [] }: ProductsPageProps) {
     setNewName("");
     setNewBarcode("");
     setNewCategoryId("");
+    setNewSubcategoryId("");
+    setNewBrandSearch("");
+    setNewBrandId(null);
+    setNewTags("");
+    setNewMeasurementQty("");
+    setNewUnitId("");
     setAddLookupStatus(null);
     setAddLoading(false);
     doSearch(debouncedQuery);
@@ -439,8 +510,12 @@ export function ProductsPage({ categories, stores = [] }: ProductsPageProps) {
                         </span>
                       )}
                     </div>
-                    {product.category_name && (
-                      <p className="mt-0.5 text-sm text-gray-500">{product.category_name}</p>
+                    {(product.category_name || product.brand_name) && (
+                      <p className="mt-0.5 text-sm text-gray-500">
+                        {product.category_name}
+                        {product.category_name && product.brand_name && " · "}
+                        {product.brand_name}
+                      </p>
                     )}
                   </div>
                   {product.barcode && (
@@ -451,6 +526,9 @@ export function ProductsPage({ categories, stores = [] }: ProductsPageProps) {
                 </div>
                 {product.latest_price !== null && (() => {
                   const hasDiscount = product.latest_original_price != null && product.latest_original_price > product.latest_price;
+                  const ppu = product.measurement_quantity && product.unit_abbreviation
+                    ? (product.latest_price / product.measurement_quantity)
+                    : null;
                   return (
                     <div className="mt-3 flex items-center justify-between border-t border-gray-50 pt-2">
                       <div className="flex items-center gap-1.5">
@@ -463,6 +541,11 @@ export function ProductsPage({ categories, stores = [] }: ProductsPageProps) {
                         {hasDiscount && (
                           <span className="rounded bg-orange-100 px-1 py-0.5 text-xs font-medium text-orange-700">
                             −{Math.round((1 - product.latest_price / product.latest_original_price!) * 100)}%
+                          </span>
+                        )}
+                        {ppu !== null && (
+                          <span className="text-xs text-gray-400">
+                            (€{ppu.toFixed(4)}/{product.unit_abbreviation})
                           </span>
                         )}
                       </div>
@@ -532,14 +615,87 @@ export function ProductsPage({ categories, stores = [] }: ProductsPageProps) {
                     <label className="mb-1 block text-sm font-medium text-gray-700">{t("admin.category")}</label>
                     <select
                       value={editCategoryId}
-                      onChange={(e) => setEditCategoryId(e.target.value)}
+                      onChange={(e) => { setEditCategoryId(e.target.value); setEditSubcategoryId(""); }}
                       className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
                     >
                       <option value="">{t("common.noCategory")}</option>
-                      {categories.map((c) => (
+                      {categories.filter((c) => !c.parent_id && (c.is_active || c.id === editCategoryId)).map((c) => (
                         <option key={c.id} value={c.id}>{c.name}</option>
                       ))}
                     </select>
+                  </div>
+                  {editCategoryId && categories.some((c) => c.parent_id === editCategoryId) && (
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-gray-700">{t("products.subcategory")}</label>
+                      <select
+                        value={editSubcategoryId}
+                        onChange={(e) => setEditSubcategoryId(e.target.value)}
+                        className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+                      >
+                        <option value="">{t("products.noSubcategory")}</option>
+                        {categories.filter((c) => c.parent_id === editCategoryId && (c.is_active || c.id === editSubcategoryId)).map((c) => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  <div className="relative">
+                    <label className="mb-1 block text-sm font-medium text-gray-700">{t("products.brand")}</label>
+                    <input
+                      type="text"
+                      value={editBrandSearch}
+                      onChange={(e) => {
+                        setEditBrandSearch(e.target.value);
+                        // Match existing brand
+                        const match = brands.find((b) => b.name.toLowerCase() === e.target.value.trim().toLowerCase());
+                        setEditBrandId(match?.id ?? null);
+                      }}
+                      placeholder={t("products.brandPlaceholder")}
+                      className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+                      list="edit-brand-suggestions"
+                    />
+                    <datalist id="edit-brand-suggestions">
+                      {brands.filter((b) => b.is_active).map((b) => (
+                        <option key={b.id} value={b.name} />
+                      ))}
+                    </datalist>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-gray-700">{t("products.tags")}</label>
+                    <input
+                      type="text"
+                      value={editTags}
+                      onChange={(e) => setEditTags(e.target.value)}
+                      placeholder={t("products.tagsPlaceholder")}
+                      className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-gray-700">{t("products.measurementQuantity")}</label>
+                      <input
+                        type="number"
+                        step="0.001"
+                        min="0"
+                        value={editMeasurementQty}
+                        onChange={(e) => setEditMeasurementQty(e.target.value)}
+                        placeholder="e.g. 500"
+                        className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-gray-700">{t("products.unit")}</label>
+                      <select
+                        value={editUnitId}
+                        onChange={(e) => setEditUnitId(e.target.value)}
+                        className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+                      >
+                        <option value="">{t("products.selectUnit")}</option>
+                        {units.map((u) => (
+                          <option key={u.id} value={u.id}>{u.name} ({u.abbreviation})</option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
                   {editError && <p className="text-sm text-red-600">{editError}</p>}
                   <div className="flex gap-2 pt-1">
@@ -567,6 +723,15 @@ export function ProductsPage({ categories, stores = [] }: ProductsPageProps) {
                   <p className="text-sm text-gray-500">
                     {t("products.category")}:{" "}
                     <span className="font-medium text-gray-700">{selectedProduct.category_name}</span>
+                    {selectedProduct.subcategory_name && (
+                      <span className="text-gray-400"> / {selectedProduct.subcategory_name}</span>
+                    )}
+                  </p>
+                )}
+                {selectedProduct.brand_name && (
+                  <p className="text-sm text-gray-500">
+                    {t("products.brand")}:{" "}
+                    <span className="font-medium text-gray-700">{selectedProduct.brand_name}</span>
                   </p>
                 )}
                 {selectedProduct.barcode && (
@@ -574,6 +739,23 @@ export function ProductsPage({ categories, stores = [] }: ProductsPageProps) {
                     {t("products.barcode")}:{" "}
                     <span className="font-mono font-medium text-gray-700">{selectedProduct.barcode}</span>
                   </p>
+                )}
+                {selectedProduct.measurement_quantity != null && selectedProduct.unit_abbreviation && (
+                  <p className="text-sm text-gray-500">
+                    {t("products.measurement")}:{" "}
+                    <span className="font-medium text-gray-700">
+                      {selectedProduct.measurement_quantity} {selectedProduct.unit_abbreviation}
+                    </span>
+                  </p>
+                )}
+                {selectedProduct.tags && selectedProduct.tags.length > 0 && (
+                  <div className="flex flex-wrap gap-1">
+                    {selectedProduct.tags.map((tag) => (
+                      <span key={tag} className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
                 )}
                 {!selectedProduct.is_active && (
                   <p className="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-600">
@@ -846,14 +1028,86 @@ export function ProductsPage({ categories, stores = [] }: ProductsPageProps) {
             <label className="text-sm font-medium text-gray-700">{t("products.categoryOptional")}</label>
             <select
               value={newCategoryId}
-              onChange={(e) => setNewCategoryId(e.target.value)}
+              onChange={(e) => { setNewCategoryId(e.target.value); setNewSubcategoryId(""); }}
               className="w-full rounded-xl border border-gray-300 px-4 py-2 text-gray-900 transition focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
             >
               <option value="">{t("common.noCategory")}</option>
-              {categories.map((cat) => (
+              {categories.filter((c) => !c.parent_id && c.is_active).map((cat) => (
                 <option key={cat.id} value={cat.id}>{cat.name}</option>
               ))}
             </select>
+          </div>
+          {newCategoryId && categories.some((c) => c.parent_id === newCategoryId && c.is_active) && (
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium text-gray-700">{t("products.subcategory")}</label>
+              <select
+                value={newSubcategoryId}
+                onChange={(e) => setNewSubcategoryId(e.target.value)}
+                className="w-full rounded-xl border border-gray-300 px-4 py-2 text-gray-900 transition focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+              >
+                <option value="">{t("products.noSubcategory")}</option>
+                {categories.filter((c) => c.parent_id === newCategoryId && c.is_active).map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-medium text-gray-700">{t("products.brand")}</label>
+            <input
+              type="text"
+              value={newBrandSearch}
+              onChange={(e) => {
+                setNewBrandSearch(e.target.value);
+                const match = brands.find((b) => b.name.toLowerCase() === e.target.value.trim().toLowerCase());
+                setNewBrandId(match?.id ?? null);
+              }}
+              placeholder={t("products.brandPlaceholder")}
+              className="w-full rounded-xl border border-gray-300 px-4 py-2 text-gray-900 transition focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+              list="add-brand-suggestions"
+            />
+            <datalist id="add-brand-suggestions">
+              {brands.filter((b) => b.is_active).map((b) => (
+                <option key={b.id} value={b.name} />
+              ))}
+            </datalist>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-medium text-gray-700">{t("products.tags")}</label>
+            <input
+              type="text"
+              value={newTags}
+              onChange={(e) => setNewTags(e.target.value)}
+              placeholder={t("products.tagsPlaceholder")}
+              className="w-full rounded-xl border border-gray-300 px-4 py-2 text-gray-900 transition focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium text-gray-700">{t("products.measurementQuantity")}</label>
+              <input
+                type="number"
+                step="0.001"
+                min="0"
+                value={newMeasurementQty}
+                onChange={(e) => setNewMeasurementQty(e.target.value)}
+                placeholder="e.g. 500"
+                className="w-full rounded-xl border border-gray-300 px-4 py-2 text-gray-900 transition focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium text-gray-700">{t("products.unit")}</label>
+              <select
+                value={newUnitId}
+                onChange={(e) => setNewUnitId(e.target.value)}
+                className="w-full rounded-xl border border-gray-300 px-4 py-2 text-gray-900 transition focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+              >
+                <option value="">{t("products.selectUnit")}</option>
+                {units.map((u) => (
+                  <option key={u.id} value={u.id}>{u.name} ({u.abbreviation})</option>
+                ))}
+              </select>
+            </div>
           </div>
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="secondary" onClick={() => { setAddOpen(false); setAddError(null); setAddLookupStatus(null); }}>

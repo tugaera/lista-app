@@ -6,6 +6,9 @@ import type { Product, Category, ProductEntry } from "@/types/database";
 
 export interface ProductWithLatestPrice extends Product {
   category_name: string | null;
+  subcategory_name: string | null;
+  brand_name: string | null;
+  unit_abbreviation: string | null;
   latest_price: number | null;
   latest_original_price: number | null;
   latest_store_name: string | null;
@@ -14,6 +17,9 @@ export interface ProductWithLatestPrice extends Product {
 
 export interface ProductWithHistory extends Product {
   category_name: string | null;
+  subcategory_name: string | null;
+  brand_name: string | null;
+  unit_abbreviation: string | null;
   entries: (ProductEntry & { store_name: string })[];
 }
 
@@ -24,7 +30,7 @@ export async function searchProducts(
 
   const { data: products, error } = await supabase
     .from("products")
-    .select("id, name, barcode, category_id, is_active, created_at, categories(name)")
+    .select("id, name, barcode, category_id, subcategory_id, brand_id, tags, measurement_quantity, unit_id, is_active, created_at, categories(name), brands(name), units(abbreviation)")
     .ilike("name", `%${query}%`)
     .eq("is_active", true)
     .order("name")
@@ -65,14 +71,24 @@ export async function searchProducts(
     const latest = priceMap.get(p.id);
     const store = latest?.stores as { name: string } | null;
     const cat = p.categories as unknown as { name: string } | null;
+    const brand = p.brands as unknown as { name: string } | null;
+    const unit = p.units as unknown as { abbreviation: string } | null;
     return {
       id: p.id,
       name: p.name,
       barcode: p.barcode,
       category_id: p.category_id,
+      subcategory_id: (p as Record<string, unknown>).subcategory_id as string | null,
+      brand_id: (p as Record<string, unknown>).brand_id as string | null,
+      tags: ((p as Record<string, unknown>).tags as string[]) ?? [],
+      measurement_quantity: (p as Record<string, unknown>).measurement_quantity as number | null,
+      unit_id: (p as Record<string, unknown>).unit_id as string | null,
       is_active: p.is_active,
       created_at: p.created_at,
       category_name: cat?.name ?? null,
+      subcategory_name: null,
+      brand_name: brand?.name ?? null,
+      unit_abbreviation: unit?.abbreviation ?? null,
       latest_price: (latest?.price as number) ?? null,
       latest_original_price: (latest?.original_price as number) ?? null,
       latest_store_name: store?.name ?? null,
@@ -89,7 +105,7 @@ export async function getProductByBarcode(
 
   const { data: product, error } = await supabase
     .from("products")
-    .select("id, name, barcode, category_id, is_active, created_at, categories(name)")
+    .select("id, name, barcode, category_id, subcategory_id, brand_id, tags, measurement_quantity, unit_id, is_active, created_at, categories(name), brands(name), units(abbreviation)")
     .eq("barcode", barcode)
     .single();
 
@@ -123,6 +139,8 @@ export async function getProductByBarcode(
   const latestStore = latestEntry?.stores as { name: string } | null;
 
   const cat = product.categories as unknown as { name: string } | null;
+  const brand = (product as Record<string, unknown>).brands as { name: string } | null;
+  const unit = (product as Record<string, unknown>).units as { abbreviation: string } | null;
 
   return {
     data: {
@@ -130,9 +148,17 @@ export async function getProductByBarcode(
       name: product.name,
       barcode: product.barcode,
       category_id: product.category_id,
+      subcategory_id: (product as Record<string, unknown>).subcategory_id as string | null,
+      brand_id: (product as Record<string, unknown>).brand_id as string | null,
+      tags: ((product as Record<string, unknown>).tags as string[]) ?? [],
+      measurement_quantity: (product as Record<string, unknown>).measurement_quantity as number | null,
+      unit_id: (product as Record<string, unknown>).unit_id as string | null,
       is_active: product.is_active,
       created_at: product.created_at,
       category_name: cat?.name ?? null,
+      subcategory_name: null,
+      brand_name: brand?.name ?? null,
+      unit_abbreviation: unit?.abbreviation ?? null,
       latest_price: (latestEntry?.price as number) ?? null,
       latest_original_price: (latestEntry?.original_price as number) ?? null,
       latest_store_name: latestStore?.name ?? null,
@@ -145,6 +171,11 @@ export async function createProduct(data: {
   name: string;
   barcode?: string;
   categoryId?: string;
+  subcategoryId?: string;
+  brandId?: string | null;
+  tags?: string[];
+  measurementQuantity?: number | null;
+  unitId?: string;
 }): Promise<{ data: Product | null; error: string | null }> {
   const supabase = await createServerSupabaseClient();
 
@@ -154,8 +185,13 @@ export async function createProduct(data: {
       name: data.name,
       barcode: data.barcode ?? null,
       category_id: data.categoryId ?? null,
+      subcategory_id: data.subcategoryId ?? null,
+      brand_id: data.brandId ?? null,
+      tags: data.tags ?? [],
+      measurement_quantity: data.measurementQuantity ?? null,
+      unit_id: data.unitId ?? null,
     })
-    .select("id, name, barcode, category_id, is_active, created_at")
+    .select("id, name, barcode, category_id, subcategory_id, brand_id, tags, measurement_quantity, unit_id, is_active, created_at")
     .single();
 
   if (error) {
@@ -173,8 +209,9 @@ export async function getCategories(): Promise<{
 
   const { data, error } = await supabase
     .from("categories")
-    .select("id, name, created_at")
-    .order("name");
+    .select("id, name, parent_id, is_active, sort_order, created_at")
+    .order("sort_order", { ascending: true, nullsFirst: false })
+    .order("name", { ascending: true });
 
   if (error) {
     return { data: [], error: error.message };
@@ -190,7 +227,7 @@ export async function getProductWithHistory(
 
   const { data: product, error: productError } = await supabase
     .from("products")
-    .select("id, name, barcode, category_id, is_active, created_at, categories(name)")
+    .select("id, name, barcode, category_id, subcategory_id, brand_id, tags, measurement_quantity, unit_id, is_active, created_at, categories(name), brands(name), units(abbreviation)")
     .eq("id", productId)
     .single();
 
@@ -220,6 +257,20 @@ export async function getProductWithHistory(
   const entries = entriesResult.data;
 
   const cat = product.categories as unknown as { name: string } | null;
+  const brand = (product as Record<string, unknown>).brands as { name: string } | null;
+  const unit = (product as Record<string, unknown>).units as { abbreviation: string } | null;
+
+  // Resolve subcategory name if subcategory_id is set
+  let subcategoryName: string | null = null;
+  const subcategoryId = (product as Record<string, unknown>).subcategory_id as string | null;
+  if (subcategoryId) {
+    const { data: subcat } = await supabase
+      .from("categories")
+      .select("name")
+      .eq("id", subcategoryId)
+      .single();
+    subcategoryName = subcat?.name ?? null;
+  }
 
   const entriesWithStore = (entries ?? []).map((e) => {
     const store = e.stores as unknown as { name: string } | null;
@@ -241,9 +292,17 @@ export async function getProductWithHistory(
       name: product.name,
       barcode: product.barcode,
       category_id: product.category_id,
+      subcategory_id: subcategoryId,
+      brand_id: (product as Record<string, unknown>).brand_id as string | null,
+      tags: ((product as Record<string, unknown>).tags as string[]) ?? [],
+      measurement_quantity: (product as Record<string, unknown>).measurement_quantity as number | null,
+      unit_id: (product as Record<string, unknown>).unit_id as string | null,
       is_active: product.is_active,
       created_at: product.created_at,
       category_name: cat?.name ?? null,
+      subcategory_name: subcategoryName,
+      brand_name: brand?.name ?? null,
+      unit_abbreviation: unit?.abbreviation ?? null,
       entries: entriesWithStore,
     },
     error: null,
@@ -260,7 +319,7 @@ export async function getAdminProducts(query: string = ""): Promise<{
 
   let q = supabase
     .from("products")
-    .select("id, name, barcode, category_id, is_active, created_at, categories(name)")
+    .select("id, name, barcode, category_id, subcategory_id, brand_id, tags, measurement_quantity, unit_id, is_active, created_at, categories(name), brands(name), units(abbreviation)")
     .order("name")
     .limit(100);
 
@@ -292,14 +351,24 @@ export async function getAdminProducts(query: string = ""): Promise<{
     data: (products ?? []).map((p) => {
       const latest = priceMap.get(p.id);
       const cat = p.categories as unknown as { name: string } | null;
+      const brand = (p as Record<string, unknown>).brands as { name: string } | null;
+      const unit = (p as Record<string, unknown>).units as { abbreviation: string } | null;
       return {
         id: p.id,
         name: p.name,
         barcode: p.barcode,
         category_id: p.category_id,
+        subcategory_id: (p as Record<string, unknown>).subcategory_id as string | null,
+        brand_id: (p as Record<string, unknown>).brand_id as string | null,
+        tags: ((p as Record<string, unknown>).tags as string[]) ?? [],
+        measurement_quantity: (p as Record<string, unknown>).measurement_quantity as number | null,
+        unit_id: (p as Record<string, unknown>).unit_id as string | null,
         is_active: p.is_active ?? true,
         created_at: p.created_at,
         category_name: cat?.name ?? null,
+        subcategory_name: null,
+        brand_name: brand?.name ?? null,
+        unit_abbreviation: unit?.abbreviation ?? null,
         latest_price: latest?.price ?? null,
         latest_original_price: null,
         latest_store_name: latest?.store_name ?? null,
@@ -319,7 +388,16 @@ async function requireAdminOrModerator(supabase: Awaited<ReturnType<typeof creat
 
 export async function adminUpdateProduct(
   productId: string,
-  data: { name: string; barcode?: string; categoryId?: string },
+  data: {
+    name: string;
+    barcode?: string;
+    categoryId?: string;
+    subcategoryId?: string;
+    brandId?: string | null;
+    tags?: string[];
+    measurementQuantity?: number | null;
+    unitId?: string;
+  },
 ): Promise<{ error?: string }> {
   const supabase = await createServerSupabaseClient();
   const authError = await requireAdminOrModerator(supabase);
@@ -334,6 +412,11 @@ export async function adminUpdateProduct(
       name,
       barcode: data.barcode?.trim() || null,
       category_id: data.categoryId || null,
+      subcategory_id: data.subcategoryId || null,
+      brand_id: data.brandId ?? null,
+      tags: data.tags ?? [],
+      measurement_quantity: data.measurementQuantity ?? null,
+      unit_id: data.unitId || null,
     })
     .eq("id", productId);
 

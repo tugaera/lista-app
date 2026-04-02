@@ -901,5 +901,90 @@ BEGIN
   );
 END; $$;
 
+-- === Migration 025: Categories enhancement, Brands, Units, Product fields ===
+
+-- Categories: add parent_id, is_active, sort_order
+ALTER TABLE categories ADD COLUMN IF NOT EXISTS parent_id uuid REFERENCES categories(id) ON DELETE CASCADE;
+ALTER TABLE categories ADD COLUMN IF NOT EXISTS is_active boolean NOT NULL DEFAULT true;
+ALTER TABLE categories ADD COLUMN IF NOT EXISTS sort_order integer;
+CREATE INDEX IF NOT EXISTS idx_categories_parent ON categories(parent_id);
+
+-- Remove old unique and add new composite unique (safe: drop if exists)
+DO $$ BEGIN
+  ALTER TABLE categories DROP CONSTRAINT IF EXISTS categories_name_key;
+EXCEPTION WHEN undefined_object THEN NULL; END $$;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_categories_name_parent
+  ON categories(name, COALESCE(parent_id, '00000000-0000-0000-0000-000000000000'));
+
+-- Brands
+CREATE TABLE IF NOT EXISTS brands (
+  id         uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name       text NOT NULL UNIQUE,
+  is_active  boolean NOT NULL DEFAULT true,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE brands ENABLE ROW LEVEL SECURITY;
+DO $$ BEGIN
+  CREATE POLICY "brands_select" ON brands FOR SELECT TO authenticated USING (true);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE POLICY "brands_insert" ON brands FOR INSERT TO authenticated WITH CHECK (get_my_role() IN ('admin', 'moderator'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE POLICY "brands_update" ON brands FOR UPDATE TO authenticated USING (get_my_role() IN ('admin', 'moderator')) WITH CHECK (get_my_role() IN ('admin', 'moderator'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE POLICY "brands_delete" ON brands FOR DELETE TO authenticated USING (get_my_role() = 'admin');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+-- Units
+CREATE TABLE IF NOT EXISTS units (
+  id           uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name         text NOT NULL,
+  abbreviation text NOT NULL UNIQUE,
+  created_at   timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE units ENABLE ROW LEVEL SECURITY;
+DO $$ BEGIN
+  CREATE POLICY "units_select" ON units FOR SELECT TO authenticated USING (true);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE POLICY "units_insert" ON units FOR INSERT TO authenticated WITH CHECK (get_my_role() IN ('admin', 'moderator'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE POLICY "units_update" ON units FOR UPDATE TO authenticated USING (get_my_role() IN ('admin', 'moderator')) WITH CHECK (get_my_role() IN ('admin', 'moderator'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE POLICY "units_delete" ON units FOR DELETE TO authenticated USING (get_my_role() = 'admin');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+-- Seed default units (idempotent)
+INSERT INTO units (name, abbreviation) VALUES
+  ('Unit', 'un'), ('Gram', 'g'), ('Kilogram', 'kg'),
+  ('Millilitre', 'ml'), ('Litre', 'l'), ('Dose', 'dose')
+ON CONFLICT (abbreviation) DO NOTHING;
+
+-- Products: new columns
+ALTER TABLE products ADD COLUMN IF NOT EXISTS subcategory_id uuid REFERENCES categories(id) ON DELETE SET NULL;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS brand_id uuid REFERENCES brands(id) ON DELETE SET NULL;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS tags text[] DEFAULT '{}';
+ALTER TABLE products ADD COLUMN IF NOT EXISTS measurement_quantity numeric(10, 3);
+ALTER TABLE products ADD COLUMN IF NOT EXISTS unit_id uuid REFERENCES units(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_products_subcategory ON products(subcategory_id);
+CREATE INDEX IF NOT EXISTS idx_products_brand ON products(brand_id);
+CREATE INDEX IF NOT EXISTS idx_products_tags ON products USING gin(tags);
+CREATE INDEX IF NOT EXISTS idx_products_unit ON products(unit_id);
+
+-- Categories RLS: INSERT/UPDATE/DELETE
+DO $$ BEGIN
+  CREATE POLICY "categories_insert" ON categories FOR INSERT TO authenticated WITH CHECK (get_my_role() IN ('admin', 'moderator'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE POLICY "categories_update" ON categories FOR UPDATE TO authenticated USING (get_my_role() IN ('admin', 'moderator')) WITH CHECK (get_my_role() IN ('admin', 'moderator'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE POLICY "categories_delete" ON categories FOR DELETE TO authenticated USING (get_my_role() = 'admin');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
 -- DONE! All migrations applied.
 -- ============================================================

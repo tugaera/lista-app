@@ -1,6 +1,9 @@
 import { redirect } from "next/navigation";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getStores } from "@/features/stores/actions";
+import { getCategories } from "@/features/categories/actions";
+import { getBrands } from "@/features/brands/actions";
+import { getUnits } from "@/features/units/actions";
 import { ProductsPage } from "@/features/products/components/products-page";
 
 export default async function ProductsRoute() {
@@ -11,9 +14,10 @@ export default async function ProductsRoute() {
 
   if (!user) redirect("/auth/login");
 
-  // Fetch categories (all users) and stores (needed for admin price entry form)
-  const [categoriesResult, storesResult, profileResult] = await Promise.all([
-    supabase.from("categories").select("id, name, created_at").order("name"),
+  const [categoriesResult, brandsResult, unitsResult, storesResult, profileResult] = await Promise.all([
+    getCategories(),
+    getBrands(),
+    getUnits(),
     getStores(),
     supabase.from("profiles").select("role").eq("id", user.id).single(),
   ]);
@@ -22,7 +26,9 @@ export default async function ProductsRoute() {
 
   return (
     <ProductsPage
-      categories={categoriesResult.data ?? []}
+      categories={categoriesResult.data}
+      brands={brandsResult.data}
+      units={unitsResult.data}
       stores={isAdminOrMod ? storesResult.stores : undefined}
     />
   );
