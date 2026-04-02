@@ -111,7 +111,7 @@ export function BarcodeScanner({ onScan, onClose }: BarcodeScannerProps) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-black">
+    <div className="fixed inset-0 z-[60] flex flex-col bg-black">
       {/* Header */}
       <div className="flex items-center justify-between bg-black/80 px-4 py-3">
         <h2 className="text-sm font-medium text-white">{t("scanner.title")}</h2>
