@@ -6,6 +6,9 @@ import type { Product, Category, ProductEntry } from "@/types/database";
 
 export interface ProductWithLatestPrice extends Product {
   category_name: string | null;
+  subcategory_name: string | null;
+  brand_name: string | null;
+  unit_abbreviation: string | null;
   latest_price: number | null;
   latest_original_price: number | null;
   latest_store_name: string | null;
@@ -14,6 +17,9 @@ export interface ProductWithLatestPrice extends Product {
 
 export interface ProductWithHistory extends Product {
   category_name: string | null;
+  subcategory_name: string | null;
+  brand_name: string | null;
+  unit_abbreviation: string | null;
   entries: (ProductEntry & { store_name: string })[];
 }
 
@@ -22,14 +28,27 @@ export async function searchProducts(
 ): Promise<{ data: ProductWithLatestPrice[]; error: string | null }> {
   const supabase = await createServerSupabaseClient();
 
-  const { data: products, error } = await supabase
+  let result = await supabase
     .from("products")
-    .select("id, name, barcode, category_id, is_active, created_at, categories(name)")
+    .select("id, name, barcode, category_id, subcategory_id, brand_id, tags, measurement_quantity, unit_id, is_active, created_at")
     .ilike("name", `%${query}%`)
     .eq("is_active", true)
     .order("name")
     .limit(50);
 
+  // Fallback if new columns don't exist yet
+  if (result.error) {
+    result = await supabase
+      .from("products")
+      .select("id, name, barcode, category_id, is_active, created_at")
+      .ilike("name", `%${query}%`)
+      .eq("is_active", true)
+      .order("name")
+      .limit(50) as typeof result;
+  }
+
+  const products = result.data ?? [];
+  const error = result.error;
   if (error) {
     return { data: [], error: error.message };
   }
@@ -64,15 +83,22 @@ export async function searchProducts(
   const results: ProductWithLatestPrice[] = products.map((p) => {
     const latest = priceMap.get(p.id);
     const store = latest?.stores as { name: string } | null;
-    const cat = p.categories as unknown as { name: string } | null;
     return {
       id: p.id,
       name: p.name,
       barcode: p.barcode,
       category_id: p.category_id,
+      subcategory_id: (p as Record<string, unknown>).subcategory_id as string | null,
+      brand_id: (p as Record<string, unknown>).brand_id as string | null,
+      tags: ((p as Record<string, unknown>).tags as string[]) ?? [],
+      measurement_quantity: (p as Record<string, unknown>).measurement_quantity as number | null,
+      unit_id: (p as Record<string, unknown>).unit_id as string | null,
       is_active: p.is_active,
       created_at: p.created_at,
-      category_name: cat?.name ?? null,
+      category_name: null,
+      subcategory_name: null,
+      brand_name: null,
+      unit_abbreviation: null,
       latest_price: (latest?.price as number) ?? null,
       latest_original_price: (latest?.original_price as number) ?? null,
       latest_store_name: store?.name ?? null,
@@ -87,17 +113,29 @@ export async function getProductByBarcode(
 ): Promise<{ data: ProductWithLatestPrice | null; error: string | null }> {
   const supabase = await createServerSupabaseClient();
 
-  const { data: product, error } = await supabase
+  let barcodeResult = await supabase
     .from("products")
-    .select("id, name, barcode, category_id, is_active, created_at, categories(name)")
+    .select("id, name, barcode, category_id, subcategory_id, brand_id, tags, measurement_quantity, unit_id, is_active, created_at")
     .eq("barcode", barcode)
     .single();
 
-  if (error) {
-    if (error.code === "PGRST116") {
+  // Fallback if new columns don't exist yet
+  if (barcodeResult.error && barcodeResult.error.code !== "PGRST116") {
+    barcodeResult = await supabase
+      .from("products")
+      .select("id, name, barcode, category_id, is_active, created_at")
+      .eq("barcode", barcode)
+      .single() as typeof barcodeResult;
+  }
+
+  const product = barcodeResult.data;
+  const error = barcodeResult.error;
+
+  if (error || !product) {
+    if (error?.code === "PGRST116") {
       return { data: null, error: null };
     }
-    return { data: null, error: error.message };
+    return { data: null, error: error?.message ?? null };
   }
 
   let latestResult = await supabase
@@ -122,17 +160,23 @@ export async function getProductByBarcode(
   const latestEntry = latestResult.data as Record<string, unknown> | null;
   const latestStore = latestEntry?.stores as { name: string } | null;
 
-  const cat = product.categories as unknown as { name: string } | null;
-
   return {
     data: {
       id: product.id,
       name: product.name,
       barcode: product.barcode,
       category_id: product.category_id,
+      subcategory_id: (product as Record<string, unknown>).subcategory_id as string | null,
+      brand_id: (product as Record<string, unknown>).brand_id as string | null,
+      tags: ((product as Record<string, unknown>).tags as string[]) ?? [],
+      measurement_quantity: (product as Record<string, unknown>).measurement_quantity as number | null,
+      unit_id: (product as Record<string, unknown>).unit_id as string | null,
       is_active: product.is_active,
       created_at: product.created_at,
-      category_name: cat?.name ?? null,
+      category_name: null,
+      subcategory_name: null,
+      brand_name: null,
+      unit_abbreviation: null,
       latest_price: (latestEntry?.price as number) ?? null,
       latest_original_price: (latestEntry?.original_price as number) ?? null,
       latest_store_name: latestStore?.name ?? null,
@@ -145,24 +189,67 @@ export async function createProduct(data: {
   name: string;
   barcode?: string;
   categoryId?: string;
+  subcategoryId?: string;
+  brandId?: string | null;
+  tags?: string[];
+  measurementQuantity?: number | null;
+  unitId?: string;
 }): Promise<{ data: Product | null; error: string | null }> {
   const supabase = await createServerSupabaseClient();
 
-  const { data: product, error } = await supabase
+  // Build insert payload — only include new columns if they might exist
+  const insertPayload: Record<string, unknown> = {
+    name: data.name,
+    barcode: data.barcode ?? null,
+    category_id: data.categoryId ?? null,
+  };
+  // Add new fields — if columns don't exist, the insert will fail and we retry without them
+  if (data.subcategoryId) insertPayload.subcategory_id = data.subcategoryId;
+  if (data.brandId) insertPayload.brand_id = data.brandId;
+  if (data.tags?.length) insertPayload.tags = data.tags;
+  if (data.measurementQuantity != null) insertPayload.measurement_quantity = data.measurementQuantity;
+  if (data.unitId) insertPayload.unit_id = data.unitId;
+
+  let createResult = await supabase
     .from("products")
-    .insert({
-      name: data.name,
-      barcode: data.barcode ?? null,
-      category_id: data.categoryId ?? null,
-    })
+    .insert(insertPayload as never)
     .select("id, name, barcode, category_id, is_active, created_at")
     .single();
 
-  if (error) {
-    return { data: null, error: error.message };
+  // Fallback: retry with only base columns
+  if (createResult.error) {
+    createResult = await supabase
+      .from("products")
+      .insert({
+        name: data.name,
+        barcode: data.barcode ?? null,
+        category_id: data.categoryId ?? null,
+      } as never)
+      .select("id, name, barcode, category_id, is_active, created_at")
+      .single() as typeof createResult;
   }
 
-  return { data: product, error: null };
+  if (createResult.error) {
+    return { data: null, error: createResult.error.message };
+  }
+
+  const created = createResult.data;
+  return {
+    data: {
+      id: created.id,
+      name: created.name,
+      barcode: created.barcode,
+      category_id: created.category_id,
+      subcategory_id: (created as Record<string, unknown>).subcategory_id as string | null ?? null,
+      brand_id: (created as Record<string, unknown>).brand_id as string | null ?? null,
+      tags: ((created as Record<string, unknown>).tags as string[]) ?? [],
+      measurement_quantity: (created as Record<string, unknown>).measurement_quantity as number | null ?? null,
+      unit_id: (created as Record<string, unknown>).unit_id as string | null ?? null,
+      is_active: created.is_active,
+      created_at: created.created_at,
+    },
+    error: null,
+  };
 }
 
 export async function getCategories(): Promise<{
@@ -171,16 +258,25 @@ export async function getCategories(): Promise<{
 }> {
   const supabase = await createServerSupabaseClient();
 
-  const { data, error } = await supabase
+  let catResult = await supabase
     .from("categories")
-    .select("id, name, created_at")
-    .order("name");
+    .select("id, name, parent_id, is_active, sort_order, created_at")
+    .order("sort_order", { ascending: true, nullsFirst: false })
+    .order("name", { ascending: true });
 
-  if (error) {
-    return { data: [], error: error.message };
+  // Fallback if new columns don't exist yet
+  if (catResult.error) {
+    catResult = await supabase
+      .from("categories")
+      .select("id, name, created_at")
+      .order("name", { ascending: true }) as typeof catResult;
   }
 
-  return { data: data ?? [], error: null };
+  if (catResult.error) {
+    return { data: [], error: catResult.error.message };
+  }
+
+  return { data: catResult.data ?? [], error: null };
 }
 
 export async function getProductWithHistory(
@@ -188,14 +284,26 @@ export async function getProductWithHistory(
 ): Promise<{ data: ProductWithHistory | null; error: string | null }> {
   const supabase = await createServerSupabaseClient();
 
-  const { data: product, error: productError } = await supabase
+  let histResult = await supabase
     .from("products")
-    .select("id, name, barcode, category_id, is_active, created_at, categories(name)")
+    .select("id, name, barcode, category_id, subcategory_id, brand_id, tags, measurement_quantity, unit_id, is_active, created_at")
     .eq("id", productId)
     .single();
 
-  if (productError) {
-    return { data: null, error: productError.message };
+  // Fallback if new columns don't exist yet
+  if (histResult.error && histResult.error.code !== "PGRST116") {
+    histResult = await supabase
+      .from("products")
+      .select("id, name, barcode, category_id, is_active, created_at")
+      .eq("id", productId)
+      .single() as typeof histResult;
+  }
+
+  const product = histResult.data;
+  const productError = histResult.error;
+
+  if (productError || !product) {
+    return { data: null, error: productError?.message ?? "Product not found" };
   }
 
   let entriesResult = await supabase
@@ -219,7 +327,17 @@ export async function getProductWithHistory(
 
   const entries = entriesResult.data;
 
-  const cat = product.categories as unknown as { name: string } | null;
+  // Resolve subcategory name if subcategory_id is set
+  let subcategoryName: string | null = null;
+  const subcategoryId = (product as Record<string, unknown>).subcategory_id as string | null;
+  if (subcategoryId) {
+    const { data: subcat } = await supabase
+      .from("categories")
+      .select("name")
+      .eq("id", subcategoryId)
+      .single();
+    subcategoryName = subcat?.name ?? null;
+  }
 
   const entriesWithStore = (entries ?? []).map((e) => {
     const store = e.stores as unknown as { name: string } | null;
@@ -241,9 +359,17 @@ export async function getProductWithHistory(
       name: product.name,
       barcode: product.barcode,
       category_id: product.category_id,
+      subcategory_id: subcategoryId,
+      brand_id: (product as Record<string, unknown>).brand_id as string | null,
+      tags: ((product as Record<string, unknown>).tags as string[]) ?? [],
+      measurement_quantity: (product as Record<string, unknown>).measurement_quantity as number | null,
+      unit_id: (product as Record<string, unknown>).unit_id as string | null,
       is_active: product.is_active,
       created_at: product.created_at,
-      category_name: cat?.name ?? null,
+      category_name: null,
+      subcategory_name: subcategoryName,
+      brand_name: null,
+      unit_abbreviation: null,
       entries: entriesWithStore,
     },
     error: null,
@@ -260,7 +386,7 @@ export async function getAdminProducts(query: string = ""): Promise<{
 
   let q = supabase
     .from("products")
-    .select("id, name, barcode, category_id, is_active, created_at, categories(name)")
+    .select("id, name, barcode, category_id, subcategory_id, brand_id, tags, measurement_quantity, unit_id, is_active, created_at")
     .order("name")
     .limit(100);
 
@@ -268,7 +394,23 @@ export async function getAdminProducts(query: string = ""): Promise<{
     q = q.ilike("name", `%${query}%`);
   }
 
-  const { data: products, error } = await q;
+  let adminResult = await q;
+
+  // Fallback if new columns don't exist yet
+  if (adminResult.error) {
+    let q2 = supabase
+      .from("products")
+      .select("id, name, barcode, category_id, is_active, created_at")
+      .order("name")
+      .limit(100);
+    if (query.length >= 2) {
+      q2 = q2.ilike("name", `%${query}%`);
+    }
+    adminResult = await q2 as typeof adminResult;
+  }
+
+  const products = adminResult.data ?? [];
+  const error = adminResult.error;
   if (error) return { data: [], error: error.message };
 
   const productIds = (products ?? []).map((p) => p.id);
@@ -291,15 +433,22 @@ export async function getAdminProducts(query: string = ""): Promise<{
   return {
     data: (products ?? []).map((p) => {
       const latest = priceMap.get(p.id);
-      const cat = p.categories as unknown as { name: string } | null;
       return {
         id: p.id,
         name: p.name,
         barcode: p.barcode,
         category_id: p.category_id,
+        subcategory_id: (p as Record<string, unknown>).subcategory_id as string | null,
+        brand_id: (p as Record<string, unknown>).brand_id as string | null,
+        tags: ((p as Record<string, unknown>).tags as string[]) ?? [],
+        measurement_quantity: (p as Record<string, unknown>).measurement_quantity as number | null,
+        unit_id: (p as Record<string, unknown>).unit_id as string | null,
         is_active: p.is_active ?? true,
         created_at: p.created_at,
-        category_name: cat?.name ?? null,
+        category_name: null,
+        subcategory_name: null,
+        brand_name: null,
+        unit_abbreviation: null,
         latest_price: latest?.price ?? null,
         latest_original_price: null,
         latest_store_name: latest?.store_name ?? null,
@@ -319,7 +468,16 @@ async function requireAdminOrModerator(supabase: Awaited<ReturnType<typeof creat
 
 export async function adminUpdateProduct(
   productId: string,
-  data: { name: string; barcode?: string; categoryId?: string },
+  data: {
+    name: string;
+    barcode?: string;
+    categoryId?: string;
+    subcategoryId?: string;
+    brandId?: string | null;
+    tags?: string[];
+    measurementQuantity?: number | null;
+    unitId?: string;
+  },
 ): Promise<{ error?: string }> {
   const supabase = await createServerSupabaseClient();
   const authError = await requireAdminOrModerator(supabase);
@@ -328,14 +486,36 @@ export async function adminUpdateProduct(
   const name = data.name.trim();
   if (!name) return { error: "Name is required" };
 
-  const { error } = await supabase
+  // Try with all columns, fallback to base columns only
+  const updatePayload: Record<string, unknown> = {
+    name,
+    barcode: data.barcode?.trim() || null,
+    category_id: data.categoryId || null,
+    subcategory_id: data.subcategoryId || null,
+    brand_id: data.brandId ?? null,
+    tags: data.tags ?? [],
+    measurement_quantity: data.measurementQuantity ?? null,
+    unit_id: data.unitId || null,
+  };
+
+  let updateResult = await supabase
     .from("products")
-    .update({
-      name,
-      barcode: data.barcode?.trim() || null,
-      category_id: data.categoryId || null,
-    })
+    .update(updatePayload as never)
     .eq("id", productId);
+
+  // Fallback if new columns don't exist
+  if (updateResult.error) {
+    updateResult = await supabase
+      .from("products")
+      .update({
+        name,
+        barcode: data.barcode?.trim() || null,
+        category_id: data.categoryId || null,
+      } as never)
+      .eq("id", productId);
+  }
+
+  const error = updateResult.error;
 
   if (error) return { error: error.message };
   revalidatePath("/admin");

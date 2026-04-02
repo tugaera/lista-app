@@ -46,11 +46,34 @@ create table invites (
 create index idx_invites_code on invites(code);
 create index idx_invites_created_by on invites(created_by);
 
--- Categories
+-- Categories (self-referencing parent_id for subcategories)
 create table categories (
   id uuid primary key default uuid_generate_v4(),
-  name text not null unique,
+  name text not null,
+  parent_id uuid references categories(id) on delete cascade,
+  is_active boolean not null default true,
+  sort_order integer,
   created_at timestamptz not null default now()
+);
+
+create index idx_categories_parent on categories(parent_id);
+create unique index idx_categories_name_parent
+  on categories(name, coalesce(parent_id, '00000000-0000-0000-0000-000000000000'));
+
+-- Brands
+create table brands (
+  id         uuid primary key default uuid_generate_v4(),
+  name       text not null unique,
+  is_active  boolean not null default true,
+  created_at timestamptz not null default now()
+);
+
+-- Units (measurement units for products)
+create table units (
+  id           uuid primary key default uuid_generate_v4(),
+  name         text not null,
+  abbreviation text not null unique,
+  created_at   timestamptz not null default now()
 );
 
 -- Stores
@@ -68,6 +91,11 @@ create table products (
   name text not null,
   barcode text unique,
   category_id uuid references categories(id) on delete set null,
+  subcategory_id uuid references categories(id) on delete set null,
+  brand_id uuid references brands(id) on delete set null,
+  tags text[] default '{}',
+  measurement_quantity numeric(10, 3),
+  unit_id uuid references units(id) on delete set null,
   is_active boolean not null default true,
   created_at timestamptz not null default now()
 );
@@ -75,6 +103,10 @@ create table products (
 create index idx_products_name on products using gin (name gin_trgm_ops);
 create index idx_products_barcode on products (barcode) where barcode is not null;
 create index idx_products_category on products (category_id);
+create index idx_products_subcategory on products(subcategory_id);
+create index idx_products_brand on products(brand_id);
+create index idx_products_tags on products using gin(tags);
+create index idx_products_unit on products(unit_id);
 
 -- Product Entries (Price History) - APPEND ONLY
 create table product_entries (
@@ -873,6 +905,8 @@ $$;
 alter table profiles enable row level security;
 alter table invites enable row level security;
 alter table categories enable row level security;
+alter table brands enable row level security;
+alter table units enable row level security;
 alter table stores enable row level security;
 alter table products enable row level security;
 alter table product_entries enable row level security;
@@ -926,9 +960,47 @@ create policy "invites_delete_own" on invites
   for delete to authenticated
   using (created_by = auth.uid() and used_by is null);
 
--- Categories: readable by all authenticated users
+-- Categories: readable by all; admin/mod can insert/update; admin can delete
 create policy "categories_select" on categories
   for select to authenticated using (true);
+create policy "categories_insert" on categories
+  for insert to authenticated
+  with check (get_my_role() in ('admin', 'moderator'));
+create policy "categories_update" on categories
+  for update to authenticated
+  using (get_my_role() in ('admin', 'moderator'))
+  with check (get_my_role() in ('admin', 'moderator'));
+create policy "categories_delete" on categories
+  for delete to authenticated
+  using (get_my_role() = 'admin');
+
+-- Brands: readable by all; admin/mod can insert/update; admin can delete
+create policy "brands_select" on brands
+  for select to authenticated using (true);
+create policy "brands_insert" on brands
+  for insert to authenticated
+  with check (get_my_role() in ('admin', 'moderator'));
+create policy "brands_update" on brands
+  for update to authenticated
+  using (get_my_role() in ('admin', 'moderator'))
+  with check (get_my_role() in ('admin', 'moderator'));
+create policy "brands_delete" on brands
+  for delete to authenticated
+  using (get_my_role() = 'admin');
+
+-- Units: readable by all; admin/mod can insert/update; admin can delete
+create policy "units_select" on units
+  for select to authenticated using (true);
+create policy "units_insert" on units
+  for insert to authenticated
+  with check (get_my_role() in ('admin', 'moderator'));
+create policy "units_update" on units
+  for update to authenticated
+  using (get_my_role() in ('admin', 'moderator'))
+  with check (get_my_role() in ('admin', 'moderator'));
+create policy "units_delete" on units
+  for delete to authenticated
+  using (get_my_role() = 'admin');
 
 -- Stores: readable by all authenticated; insert/update by admin/moderator
 create policy "stores_select" on stores
@@ -1140,6 +1212,14 @@ insert into stores (name) values
   ('Supermarket A'),
   ('Supermarket B'),
   ('Local Market');
+
+insert into units (name, abbreviation) values
+  ('Unit', 'un'),
+  ('Gram', 'g'),
+  ('Kilogram', 'kg'),
+  ('Millilitre', 'ml'),
+  ('Litre', 'l'),
+  ('Dose', 'dose');
 
 -- ============================================================
 -- STORAGE
