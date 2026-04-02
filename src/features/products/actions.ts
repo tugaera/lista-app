@@ -30,7 +30,7 @@ export async function searchProducts(
 
   const { data: products, error } = await supabase
     .from("products")
-    .select("id, name, barcode, category_id, subcategory_id, brand_id, tags, measurement_quantity, unit_id, is_active, created_at, categories(name), brands(name), units(abbreviation)")
+    .select("id, name, barcode, category_id, subcategory_id, brand_id, tags, measurement_quantity, unit_id, is_active, created_at, categories(name)")
     .ilike("name", `%${query}%`)
     .eq("is_active", true)
     .order("name")
@@ -71,8 +71,6 @@ export async function searchProducts(
     const latest = priceMap.get(p.id);
     const store = latest?.stores as { name: string } | null;
     const cat = p.categories as unknown as { name: string } | null;
-    const brand = p.brands as unknown as { name: string } | null;
-    const unit = p.units as unknown as { abbreviation: string } | null;
     return {
       id: p.id,
       name: p.name,
@@ -87,8 +85,8 @@ export async function searchProducts(
       created_at: p.created_at,
       category_name: cat?.name ?? null,
       subcategory_name: null,
-      brand_name: brand?.name ?? null,
-      unit_abbreviation: unit?.abbreviation ?? null,
+      brand_name: null,
+      unit_abbreviation: null,
       latest_price: (latest?.price as number) ?? null,
       latest_original_price: (latest?.original_price as number) ?? null,
       latest_store_name: store?.name ?? null,
@@ -105,7 +103,7 @@ export async function getProductByBarcode(
 
   const { data: product, error } = await supabase
     .from("products")
-    .select("id, name, barcode, category_id, subcategory_id, brand_id, tags, measurement_quantity, unit_id, is_active, created_at, categories(name), brands(name), units(abbreviation)")
+    .select("id, name, barcode, category_id, subcategory_id, brand_id, tags, measurement_quantity, unit_id, is_active, created_at, categories(name)")
     .eq("barcode", barcode)
     .single();
 
@@ -139,8 +137,6 @@ export async function getProductByBarcode(
   const latestStore = latestEntry?.stores as { name: string } | null;
 
   const cat = product.categories as unknown as { name: string } | null;
-  const brand = (product as Record<string, unknown>).brands as { name: string } | null;
-  const unit = (product as Record<string, unknown>).units as { abbreviation: string } | null;
 
   return {
     data: {
@@ -157,8 +153,8 @@ export async function getProductByBarcode(
       created_at: product.created_at,
       category_name: cat?.name ?? null,
       subcategory_name: null,
-      brand_name: brand?.name ?? null,
-      unit_abbreviation: unit?.abbreviation ?? null,
+      brand_name: null,
+      unit_abbreviation: null,
       latest_price: (latestEntry?.price as number) ?? null,
       latest_original_price: (latestEntry?.original_price as number) ?? null,
       latest_store_name: latestStore?.name ?? null,
@@ -227,7 +223,7 @@ export async function getProductWithHistory(
 
   const { data: product, error: productError } = await supabase
     .from("products")
-    .select("id, name, barcode, category_id, subcategory_id, brand_id, tags, measurement_quantity, unit_id, is_active, created_at, categories(name), brands(name), units(abbreviation)")
+    .select("id, name, barcode, category_id, subcategory_id, brand_id, tags, measurement_quantity, unit_id, is_active, created_at, categories(name)")
     .eq("id", productId)
     .single();
 
@@ -257,8 +253,6 @@ export async function getProductWithHistory(
   const entries = entriesResult.data;
 
   const cat = product.categories as unknown as { name: string } | null;
-  const brand = (product as Record<string, unknown>).brands as { name: string } | null;
-  const unit = (product as Record<string, unknown>).units as { abbreviation: string } | null;
 
   // Resolve subcategory name if subcategory_id is set
   let subcategoryName: string | null = null;
@@ -301,8 +295,8 @@ export async function getProductWithHistory(
       created_at: product.created_at,
       category_name: cat?.name ?? null,
       subcategory_name: subcategoryName,
-      brand_name: brand?.name ?? null,
-      unit_abbreviation: unit?.abbreviation ?? null,
+      brand_name: null,
+      unit_abbreviation: null,
       entries: entriesWithStore,
     },
     error: null,
@@ -319,7 +313,7 @@ export async function getAdminProducts(query: string = ""): Promise<{
 
   let q = supabase
     .from("products")
-    .select("id, name, barcode, category_id, subcategory_id, brand_id, tags, measurement_quantity, unit_id, is_active, created_at, categories(name), brands(name), units(abbreviation)")
+    .select("id, name, barcode, category_id, subcategory_id, brand_id, tags, measurement_quantity, unit_id, is_active, created_at, categories(name)")
     .order("name")
     .limit(100);
 
@@ -351,8 +345,6 @@ export async function getAdminProducts(query: string = ""): Promise<{
     data: (products ?? []).map((p) => {
       const latest = priceMap.get(p.id);
       const cat = p.categories as unknown as { name: string } | null;
-      const brand = (p as Record<string, unknown>).brands as { name: string } | null;
-      const unit = (p as Record<string, unknown>).units as { abbreviation: string } | null;
       return {
         id: p.id,
         name: p.name,
@@ -367,8 +359,8 @@ export async function getAdminProducts(query: string = ""): Promise<{
         created_at: p.created_at,
         category_name: cat?.name ?? null,
         subcategory_name: null,
-        brand_name: brand?.name ?? null,
-        unit_abbreviation: unit?.abbreviation ?? null,
+        brand_name: null,
+        unit_abbreviation: null,
         latest_price: latest?.price ?? null,
         latest_original_price: null,
         latest_store_name: latest?.store_name ?? null,
