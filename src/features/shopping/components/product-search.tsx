@@ -147,7 +147,7 @@ export function ProductSearch({
         </div>
       )}
       {isOpen && (
-        <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-60 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+        <div className="absolute left-0 right-0 bottom-full z-50 mb-1 max-h-60 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
           {results.map((product) => (
             <button
               key={product.id}
