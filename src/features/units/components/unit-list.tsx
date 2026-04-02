@@ -11,6 +11,7 @@ import {
   updateUnit,
   deleteUnit,
   checkUnitDependencies,
+  setDefaultUnit,
 } from "@/features/units/actions";
 
 function SpinnerIcon({ className }: { className?: string }) {
@@ -65,8 +66,6 @@ function CreateUnitForm() {
     </form>
   );
 }
-
-const DEFAULT_UNIT_KEY = "default_unit_id";
 
 function UnitRow({ unit, isDefault, onSetDefault }: { unit: Unit; isDefault: boolean; onSetDefault: () => void }) {
   const { t } = useT();
@@ -205,14 +204,16 @@ function UnitRow({ unit, isDefault, onSetDefault }: { unit: Unit; isDefault: boo
 
 export function UnitList({ initialUnits }: { initialUnits: Unit[] }) {
   const { t } = useT();
-  const [defaultUnitId, setDefaultUnitId] = useState<string>(() => {
-    if (typeof window === "undefined") return "";
-    return localStorage.getItem(DEFAULT_UNIT_KEY) ?? "";
-  });
+  const [defaultUnitId, setDefaultUnitId] = useState<string>(
+    () => initialUnits.find((u) => u.is_default)?.id ?? ""
+  );
+  const [, startTransition] = useTransition();
 
   function handleSetDefault(unitId: string) {
-    localStorage.setItem(DEFAULT_UNIT_KEY, unitId);
     setDefaultUnitId(unitId);
+    startTransition(async () => {
+      await setDefaultUnit(unitId);
+    });
   }
 
   return (

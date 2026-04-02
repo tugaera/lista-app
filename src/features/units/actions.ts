@@ -24,11 +24,35 @@ export async function getUnits(): Promise<{ data: Unit[]; error: string | null }
   const supabase = await createServerSupabaseClient();
   const { data, error } = await supabase
     .from("units")
-    .select("id, name, abbreviation, created_at")
+    .select("id, name, abbreviation, is_default, created_at")
     .order("name", { ascending: true });
 
-  if (error) return { data: [], error: error.message };
+  // Fallback if is_default column doesn't exist yet
+  if (error) {
+    const fallback = await supabase
+      .from("units")
+      .select("id, name, abbreviation, created_at")
+      .order("name", { ascending: true });
+    if (fallback.error) return { data: [], error: fallback.error.message };
+    return { data: (fallback.data ?? []).map((u) => ({ ...u, is_default: false })), error: null };
+  }
+
   return { data: data ?? [], error: null };
+}
+
+export async function setDefaultUnit(unitId: string): Promise<{ error?: string }> {
+  const supabase = await createServerSupabaseClient();
+  const authError = await requireAdminOrModerator(supabase);
+  if (authError) return { error: authError };
+
+  // Unset all defaults, then set the chosen one
+  await supabase.from("units").update({ is_default: false }).eq("is_default", true);
+  const { error } = await supabase.from("units").update({ is_default: true }).eq("id", unitId);
+
+  if (error) return { error: error.message };
+  revalidatePath("/admin");
+  revalidatePath("/products");
+  return {};
 }
 
 export async function createUnit(

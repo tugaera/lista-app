@@ -986,5 +986,9 @@ DO $$ BEGIN
   CREATE POLICY "categories_delete" ON categories FOR DELETE TO authenticated USING (get_my_role() = 'admin');
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
+-- === Migration 026: is_default on units ===
+ALTER TABLE units ADD COLUMN IF NOT EXISTS is_default boolean NOT NULL DEFAULT false;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_units_single_default ON units (is_default) WHERE is_default = true;
+
 -- DONE! All migrations applied.
 -- ============================================================
