@@ -66,7 +66,9 @@ function CreateUnitForm() {
   );
 }
 
-function UnitRow({ unit }: { unit: Unit }) {
+const DEFAULT_UNIT_KEY = "default_unit_id";
+
+function UnitRow({ unit, isDefault, onSetDefault }: { unit: Unit; isDefault: boolean; onSetDefault: () => void }) {
   const { t } = useT();
   const { isAdmin } = useUser();
 
@@ -139,6 +141,24 @@ function UnitRow({ unit }: { unit: Unit }) {
         )}
 
         <div className="flex shrink-0 items-center gap-1">
+          {!editing && (
+            <button
+              type="button"
+              onClick={onSetDefault}
+              title={t("admin.setDefaultUnit")}
+              className={`rounded p-1.5 transition-colors ${isDefault ? "text-emerald-500" : "text-gray-300 hover:text-emerald-400"}`}
+            >
+              {isDefault ? (
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                </svg>
+              ) : (
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+                </svg>
+              )}
+            </button>
+          )}
           {editing ? (
             <>
               <button type="button" onClick={handleSave} disabled={isSaving} className="rounded px-2 py-1 text-xs font-medium text-emerald-600 hover:bg-emerald-50 disabled:opacity-50">
@@ -185,6 +205,15 @@ function UnitRow({ unit }: { unit: Unit }) {
 
 export function UnitList({ initialUnits }: { initialUnits: Unit[] }) {
   const { t } = useT();
+  const [defaultUnitId, setDefaultUnitId] = useState<string>(() => {
+    if (typeof window === "undefined") return "";
+    return localStorage.getItem(DEFAULT_UNIT_KEY) ?? "";
+  });
+
+  function handleSetDefault(unitId: string) {
+    localStorage.setItem(DEFAULT_UNIT_KEY, unitId);
+    setDefaultUnitId(unitId);
+  }
 
   return (
     <Card>
@@ -197,11 +226,19 @@ export function UnitList({ initialUnits }: { initialUnits: Unit[] }) {
       {initialUnits.length === 0 ? (
         <p className="py-4 text-center text-sm text-gray-400">{t("admin.noUnits")}</p>
       ) : (
-        <div className="space-y-1.5">
-          {initialUnits.map((unit) => (
-            <UnitRow key={unit.id} unit={unit} />
-          ))}
-        </div>
+        <>
+          <p className="mb-2 text-xs text-gray-400">{t("admin.setDefaultUnit")} <span className="text-emerald-500">★</span></p>
+          <div className="space-y-1.5">
+            {initialUnits.map((unit) => (
+              <UnitRow
+                key={unit.id}
+                unit={unit}
+                isDefault={defaultUnitId === unit.id}
+                onSetDefault={() => handleSetDefault(unit.id)}
+              />
+            ))}
+          </div>
+        </>
       )}
     </Card>
   );

@@ -293,6 +293,8 @@
   "admin.deleteUnitConfirm": "Are you sure you want to delete this unit?",
   "admin.unitHasProducts": "This unit has products linked. Reassign or remove them first.",
   "admin.noUnits": "No units yet.",
+  "admin.setDefaultUnit": "Set as default",
+  "admin.defaultUnit": "Default",
 
   "products.subcategory": "Subcategory",
   "products.brand": "Brand",

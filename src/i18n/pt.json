@@ -293,6 +293,8 @@
   "admin.deleteUnitConfirm": "Tem certeza que deseja eliminar esta unidade?",
   "admin.unitHasProducts": "Esta unidade tem produtos associados. Reatribua ou remova-os primeiro.",
   "admin.noUnits": "Ainda sem unidades.",
+  "admin.setDefaultUnit": "Definir como predefinido",
+  "admin.defaultUnit": "Predefinido",
 
   "products.subcategory": "Subcategoria",
   "products.brand": "Marca",

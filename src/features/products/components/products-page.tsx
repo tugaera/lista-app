@@ -467,7 +467,7 @@ export function ProductsPage({ categories, brands, units, stores = [] }: Product
     <div className="mx-auto max-w-4xl px-4 py-6">
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">{t("products.title")}</h1>
-        <Button onClick={() => setAddOpen(true)}>{t("products.addProduct")}</Button>
+        <Button onClick={() => { setNewUnitId(localStorage.getItem("default_unit_id") ?? ""); setAddOpen(true); }}>{t("products.addProduct")}</Button>
       </div>
 
       <div className="mb-6">
@@ -491,7 +491,7 @@ export function ProductsPage({ categories, brands, units, stores = [] }: Product
           }
           title={t("products.noResults")}
           description={query ? t("products.noResultsHint") : t("products.noProductsHint")}
-          action={<Button onClick={() => setAddOpen(true)}>{t("products.addProduct")}</Button>}
+          action={<Button onClick={() => { setNewUnitId(localStorage.getItem("default_unit_id") ?? ""); setAddOpen(true); }}>{t("products.addProduct")}</Button>}
         />
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -1020,7 +1020,7 @@ export function ProductsPage({ categories, brands, units, stores = [] }: Product
               </button>
             </div>
             {addLookupStatus && (
-              <p className={`text-xs ${addLookupStatus.includes(t("products.alreadyInDB")) ? "text-amber-600" : "text-emerald-600"}`}>
+              <p className={`text-sm font-medium ${addLookupStatus.includes(t("products.alreadyInDB")) ? "text-amber-600" : "text-emerald-600"}`}>
                 {addLookupStatus}
               </p>
             )}
