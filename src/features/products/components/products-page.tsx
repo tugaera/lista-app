@@ -142,12 +142,20 @@ export function ProductsPage({ categories, brands, units, stores = [] }: Product
   const doSearch = useCallback(async (searchQuery: string) => {
     setLoading(true);
     // Admin/mod sees all products (including inactive); regular users see active only
-    const { data } = isAdminOrModerator
+    const result = isAdminOrModerator
       ? await getAdminProducts(searchQuery)
       : await searchProducts(searchQuery);
-    setProducts(data);
+    // Resolve category/brand/unit names client-side (server omits FK joins to avoid ambiguity)
+    const enriched = result.data.map((p) => ({
+      ...p,
+      category_name: categories.find((c) => c.id === p.category_id)?.name ?? null,
+      subcategory_name: categories.find((c) => c.id === p.subcategory_id)?.name ?? null,
+      brand_name: brands.find((b) => b.id === p.brand_id)?.name ?? null,
+      unit_abbreviation: units.find((u) => u.id === p.unit_id)?.abbreviation ?? null,
+    }));
+    setProducts(enriched);
     setLoading(false);
-  }, [isAdminOrModerator]);
+  }, [isAdminOrModerator, categories, brands, units]);
 
   useEffect(() => {
     if (debouncedQuery.length >= 2) {
