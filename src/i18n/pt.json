@@ -284,6 +284,10 @@
   "admin.disableBrandMsg": "Esta marca será ocultada da seleção de produtos.",
   "admin.enableBrandMsg": "Esta marca ficará novamente disponível na seleção de produtos.",
   "admin.noBrands": "Ainda sem marcas.",
+  "admin.unverifiedBrands": "Aguardando confirmação",
+  "admin.confirmBrand": "Confirmar marca",
+  "admin.confirmBrandMsg": "Confirmar esta marca como válida? Ficará disponível normalmente para todos os utilizadores.",
+  "admin.brandUnverifiedHint": "Criada por um utilizador, necessita confirmação.",
 
   "admin.units": "Unidades",
   "admin.addUnit": "Adicionar Unidade",

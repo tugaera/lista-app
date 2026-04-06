@@ -36,6 +36,7 @@ import {
 import type { Category, ProductEntry, Brand, Unit } from "@/types/database";
 import type { Store } from "@/features/stores/actions";
 import { getOrCreateBrand } from "@/features/brands/actions";
+import { BrandSearch } from "@/features/brands/components/brand-search";
 
 interface ProductsPageProps {
   categories: Category[];
@@ -647,26 +648,14 @@ export function ProductsPage({ categories, brands, units, stores = [] }: Product
                       </select>
                     </div>
                   )}
-                  <div className="relative">
+                  <div>
                     <label className="mb-1 block text-sm font-medium text-gray-700">{t("products.brand")}</label>
-                    <input
-                      type="text"
+                    <BrandSearch
                       value={editBrandSearch}
-                      onChange={(e) => {
-                        setEditBrandSearch(e.target.value);
-                        // Match existing brand
-                        const match = brands.find((b) => b.name.toLowerCase() === e.target.value.trim().toLowerCase());
-                        setEditBrandId(match?.id ?? null);
-                      }}
+                      brandId={editBrandId}
+                      onChange={(name, id) => { setEditBrandSearch(name); setEditBrandId(id); }}
                       placeholder={t("products.brandPlaceholder")}
-                      className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
-                      list="edit-brand-suggestions"
                     />
-                    <datalist id="edit-brand-suggestions">
-                      {brands.filter((b) => b.is_active).map((b) => (
-                        <option key={b.id} value={b.name} />
-                      ))}
-                    </datalist>
                   </div>
                   <div>
                     <label className="mb-1 block text-sm font-medium text-gray-700">{t("products.tags")}</label>
@@ -1062,23 +1051,12 @@ export function ProductsPage({ categories, brands, units, stores = [] }: Product
           )}
           <div className="flex flex-col gap-1.5">
             <label className="text-sm font-medium text-gray-700">{t("products.brand")}</label>
-            <input
-              type="text"
+            <BrandSearch
               value={newBrandSearch}
-              onChange={(e) => {
-                setNewBrandSearch(e.target.value);
-                const match = brands.find((b) => b.name.toLowerCase() === e.target.value.trim().toLowerCase());
-                setNewBrandId(match?.id ?? null);
-              }}
+              brandId={newBrandId}
+              onChange={(name, id) => { setNewBrandSearch(name); setNewBrandId(id); }}
               placeholder={t("products.brandPlaceholder")}
-              className="w-full rounded-xl border border-gray-300 px-4 py-2 text-gray-900 transition focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-              list="add-brand-suggestions"
             />
-            <datalist id="add-brand-suggestions">
-              {brands.filter((b) => b.is_active).map((b) => (
-                <option key={b.id} value={b.name} />
-              ))}
-            </datalist>
           </div>
           <div className="flex flex-col gap-1.5">
             <label className="text-sm font-medium text-gray-700">{t("products.tags")}</label>

@@ -284,6 +284,10 @@
   "admin.disableBrandMsg": "This brand will be hidden from product selection.",
   "admin.enableBrandMsg": "This brand will be available again in product selection.",
   "admin.noBrands": "No brands yet.",
+  "admin.unverifiedBrands": "Awaiting confirmation",
+  "admin.confirmBrand": "Confirm brand",
+  "admin.confirmBrandMsg": "Confirm this brand as valid? It will appear normally for all users.",
+  "admin.brandUnverifiedHint": "Created by a user, needs confirmation.",
 
   "admin.units": "Units",
   "admin.addUnit": "Add Unit",
