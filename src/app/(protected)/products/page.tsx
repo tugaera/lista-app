@@ -1,28 +1,26 @@
 import { redirect } from "next/navigation";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getStores } from "@/features/stores/actions";
 import { getCategories } from "@/features/categories/actions";
 import { getBrands } from "@/features/brands/actions";
 import { getUnits } from "@/features/units/actions";
 import { ProductsPage } from "@/features/products/components/products-page";
+import { getCachedUser, getCachedProfile } from "@/lib/supabase/cached";
 
 export default async function ProductsRoute() {
-  const supabase = await createServerSupabaseClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCachedUser();
 
   if (!user) redirect("/auth/login");
 
-  const [categoriesResult, brandsResult, unitsResult, storesResult, profileResult] = await Promise.all([
+  // Use cached profile (already fetched in layout) instead of a separate DB query
+  const profile = await getCachedProfile();
+  const isAdminOrMod = profile?.role === "admin" || profile?.role === "moderator";
+
+  const [categoriesResult, brandsResult, unitsResult, storesResult] = await Promise.all([
     getCategories(),
     getBrands(),
     getUnits(),
-    getStores(),
-    supabase.from("profiles").select("role").eq("id", user.id).single(),
+    isAdminOrMod ? getStores() : Promise.resolve({ stores: [] }),
   ]);
-
-  const isAdminOrMod = profileResult.data?.role === "admin" || profileResult.data?.role === "moderator";
 
   return (
     <ProductsPage

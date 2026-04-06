@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { getCachedUser } from "@/lib/supabase/cached";
 import { ListDetail } from "@/features/lists/components/list-detail";
 import { getListShares } from "@/features/lists/actions-shares";
 
@@ -9,10 +10,10 @@ export default async function ListDetailRoute({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const supabase = await createServerSupabaseClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const [user, supabase] = await Promise.all([
+    getCachedUser(),
+    createServerSupabaseClient(),
+  ]);
 
   if (!user) redirect("/auth/login");
 

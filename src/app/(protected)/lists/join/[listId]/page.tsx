@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { getCachedUser } from "@/lib/supabase/cached";
 import { JoinListConfirm } from "./join-list-confirm";
 
 export default async function JoinListPage({
@@ -8,10 +8,7 @@ export default async function JoinListPage({
   params: Promise<{ listId: string }>;
 }) {
   const { listId } = await params;
-  const supabase = await createServerSupabaseClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCachedUser();
 
   if (!user) redirect(`/auth/login?next=/lists/join/${listId}`);
 

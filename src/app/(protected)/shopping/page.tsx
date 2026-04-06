@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { getCachedUser, getCachedProfile } from "@/lib/supabase/cached";
 import { ShoppingPage } from "@/features/shopping/components/shopping-page";
 import { getCartItems } from "@/features/shopping/actions";
 import { getListWithItems, getListsPreview } from "@/features/lists/actions";
@@ -14,10 +15,10 @@ export default async function ShoppingRoute({
 }: {
   searchParams: Promise<{ list?: string; cart?: string }>;
 }) {
-  const supabase = await createServerSupabaseClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const [user, supabase] = await Promise.all([
+    getCachedUser(),
+    createServerSupabaseClient(),
+  ]);
 
   if (!user) redirect("/auth/login");
 
@@ -103,16 +104,20 @@ export default async function ShoppingRoute({
     }
   }
 
-  // Parallel fetches
+  // Check role from cached profile to decide if we need admin-only data
+  const profile = await getCachedProfile();
+  const isAdminOrMod = profile?.role === "admin" || profile?.role === "moderator";
+
+  // Parallel fetches — categories/brands/units only for admins/mods (used in long-press modal)
   const [items, storesResult, listsResult, sharedWithMeCarts, initialShares, categoriesResult, brandsResult, unitsResult] = await Promise.all([
     getCartItems(cartId),
     supabase.from("stores").select("id, name, is_active, sort_order").eq("is_active", true).order("sort_order", { ascending: true, nullsFirst: false }).order("name", { ascending: true }),
     getListsPreview(),
     getSharedWithMeCarts(),
     isSharedCart ? Promise.resolve([]) : getCartShares(cartId),
-    getCategories(),
-    getBrands(),
-    getUnits(),
+    isAdminOrMod ? getCategories() : Promise.resolve({ data: [] }),
+    isAdminOrMod ? getBrands() : Promise.resolve({ data: [] }),
+    isAdminOrMod ? getUnits() : Promise.resolve({ data: [] }),
   ]);
 
   // Load tracking list: from URL param, direct query, or RPC fallback for shared users

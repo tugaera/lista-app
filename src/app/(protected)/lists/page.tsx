@@ -1,13 +1,14 @@
 import { redirect } from "next/navigation";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { getCachedUser } from "@/lib/supabase/cached";
 import { ListsPage } from "@/features/lists/components/lists-page";
 import { getSharedWithMeLists } from "@/features/lists/actions-shares";
 
 export default async function ListsRoute() {
-  const supabase = await createServerSupabaseClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const [user, supabase] = await Promise.all([
+    getCachedUser(),
+    createServerSupabaseClient(),
+  ]);
 
   if (!user) redirect("/auth/login");
 
