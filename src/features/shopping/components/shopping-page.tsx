@@ -6,6 +6,7 @@ import dynamic from "next/dynamic";
 import type { CartItemDisplay } from "@/features/shopping/actions";
 import { finalizeCart, updateCartStore } from "@/features/shopping/actions";
 import type { CartShareInfo, SharedWithMeCart } from "@/features/shopping/actions-shares";
+import type { Category, Brand, Unit } from "@/types/database";
 import { shareCart, getCartShares, revokeCartShare, leaveSharedCart } from "@/features/shopping/actions-shares";
 import { getListWithItems } from "@/features/lists/actions";
 import { CartItemList } from "./cart-item-list";
@@ -15,6 +16,7 @@ const BarcodeScanner = dynamic(
   { ssr: false },
 );
 import { ListTrackingPanel, type TrackingItem, findMatchingTrackingItems } from "./list-tracking-panel";
+import { ReceiptScanPanel } from "./receipt-scan-panel";
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
 
 type Store = { id: string; name: string; is_active?: boolean };
@@ -34,6 +36,9 @@ type ShoppingPageProps = {
   initialShares?: CartShareInfo[];
   currentUserId?: string;
   currentUserEmail?: string;
+  categories?: Category[];
+  brands?: Brand[];
+  units?: Unit[];
 };
 
 export function ShoppingPage({
@@ -50,6 +55,9 @@ export function ShoppingPage({
   initialShares = [],
   currentUserId = "",
   currentUserEmail = "",
+  categories = [],
+  brands = [],
+  units = [],
 }: ShoppingPageProps) {
   const router = useRouter();
   const [items, setItems] = useState<CartItemDisplay[]>(initialItems);
@@ -86,6 +94,9 @@ export function ShoppingPage({
   const [shares, setShares] = useState<CartShareInfo[]>(initialShares);
   const [shareError, setShareError] = useState<string | null>(null);
   const [shareLoading, startShareTransition] = useTransition();
+
+  // Receipt scan panel
+  const [showReceiptPanel, setShowReceiptPanel] = useState(false);
 
   // Cart switcher
   const [showCartSwitcher, setShowCartSwitcher] = useState(false);
@@ -805,6 +816,24 @@ export function ShoppingPage({
             </div>
           )}
 
+          {/* Receipt scan button (only for own carts with items) */}
+          {!isSharedCart && items.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowReceiptPanel((v) => !v)}
+              title="Scan receipt"
+              className={`shrink-0 rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors ${
+                showReceiptPanel
+                  ? "border-amber-300 bg-amber-50 text-amber-700"
+                  : "border-gray-200 text-gray-500 hover:border-gray-300 hover:text-gray-700"
+              }`}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+              </svg>
+            </button>
+          )}
+
           {/* Share button (only for own carts) */}
           {!isSharedCart && (
             <button
@@ -983,6 +1012,24 @@ export function ShoppingPage({
           onItemUpdated={handleItemUpdated}
           isShared={isSharedCart || shares.length > 0}
         />
+
+        {/* Receipt scan panel */}
+        {showReceiptPanel && !isSharedCart && (
+          <ReceiptScanPanel
+            cartId={cartId}
+            cartItems={items}
+            onItemsUpdated={(updates) => {
+              setItems((prev) =>
+                prev.map((item) => {
+                  const upd = updates.find((u) => u.id === item.id);
+                  if (!upd) return item;
+                  return { ...item, price: upd.price, quantity: upd.quantity, subtotal: upd.price * upd.quantity };
+                }),
+              );
+            }}
+            onClose={() => setShowReceiptPanel(false)}
+          />
+        )}
       </main>
 
       {/* Scanned barcode toast */}
@@ -1010,6 +1057,9 @@ export function ShoppingPage({
         scannedBarcode={scannedBarcode}
         onBarcodeClear={() => setScannedBarcode(undefined)}
         onScanRequest={() => setShowScanner(true)}
+        categories={categories}
+        brands={brands}
+        units={units}
       />
 
       {/* Barcode scanner modal */}

@@ -5,6 +5,9 @@ import { getCartItems } from "@/features/shopping/actions";
 import { getListWithItems, getListsPreview } from "@/features/lists/actions";
 import { getSharedWithMeCarts, getCartShares } from "@/features/shopping/actions-shares";
 import type { TrackingItem } from "@/features/shopping/components/list-tracking-panel";
+import { getCategories } from "@/features/categories/actions";
+import { getBrands } from "@/features/brands/actions";
+import { getUnits } from "@/features/units/actions";
 
 export default async function ShoppingRoute({
   searchParams,
@@ -101,12 +104,15 @@ export default async function ShoppingRoute({
   }
 
   // Parallel fetches
-  const [items, storesResult, listsResult, sharedWithMeCarts, initialShares] = await Promise.all([
+  const [items, storesResult, listsResult, sharedWithMeCarts, initialShares, categoriesResult, brandsResult, unitsResult] = await Promise.all([
     getCartItems(cartId),
     supabase.from("stores").select("id, name, is_active, sort_order").eq("is_active", true).order("sort_order", { ascending: true, nullsFirst: false }).order("name", { ascending: true }),
     getListsPreview(),
     getSharedWithMeCarts(),
     isSharedCart ? Promise.resolve([]) : getCartShares(cartId),
+    getCategories(),
+    getBrands(),
+    getUnits(),
   ]);
 
   // Load tracking list: from URL param, direct query, or RPC fallback for shared users
@@ -170,6 +176,9 @@ export default async function ShoppingRoute({
       initialShares={initialShares}
       currentUserId={user.id}
       currentUserEmail={user.email ?? ""}
+      categories={categoriesResult.data}
+      brands={brandsResult.data}
+      units={unitsResult.data}
     />
   );
 }

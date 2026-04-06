@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import type { Profile, Invite } from "@/types/database";
 
@@ -174,7 +175,10 @@ export async function createInvite(
       if (!admin) {
         return { error: "", invite: data, emailSent: false };
       }
-      const origin = process.env.NEXT_PUBLIC_SITE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(".supabase.co", "") ?? "";
+      const headersList = await headers();
+      const host = headersList.get("host") ?? "";
+      const proto = headersList.get("x-forwarded-proto") ?? "https";
+      const origin = process.env.NEXT_PUBLIC_SITE_URL ?? `${proto}://${host}`;
       const { error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, {
         redirectTo: `${origin}/auth/signup?code=${code}`,
       });

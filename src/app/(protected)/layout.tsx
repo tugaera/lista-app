@@ -8,6 +8,7 @@ import type { Locale } from "@/i18n";
 import type { Profile } from "@/types/database";
 import { OfflineBanner } from "@/components/ui/offline-banner";
 import { SyncManager } from "@/components/sync-manager";
+import { PullToRefresh } from "@/components/ui/pull-to-refresh";
 
 export default async function ProtectedLayout({
   children,
@@ -83,6 +84,7 @@ export default async function ProtectedLayout({
           <BottomNav />
           <OfflineBanner />
           <SyncManager />
+          <PullToRefresh />
         </div>
       </I18nProvider>
     </UserProvider>

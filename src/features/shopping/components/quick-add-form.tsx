@@ -5,7 +5,14 @@ import { addCartItemOffline } from "@/lib/offline/cart-actions";
 import type { CartItemDisplay } from "@/features/shopping/actions";
 import { ProductSearch, type ProductResult } from "./product-search";
 import { DiscountModal } from "./discount-modal";
+import { Modal } from "@/components/ui/modal";
+import { BrandSearch } from "@/features/brands/components/brand-search";
 import { useT } from "@/i18n/i18n-provider";
+import { useUser } from "@/features/users/components/user-provider";
+import type { Category, Brand, Unit } from "@/types/database";
+import { createProduct, adminUpdateProduct } from "@/features/products/actions";
+import { getOrCreateBrand } from "@/features/brands/actions";
+import { createBrowserSupabaseClient } from "@/lib/supabase/client";
 
 type QuickAddFormProps = {
   cartId: string;
@@ -14,6 +21,9 @@ type QuickAddFormProps = {
   scannedBarcode?: string;
   onBarcodeClear?: () => void;
   onScanRequest?: () => void;
+  categories?: Category[];
+  brands?: Brand[];
+  units?: Unit[];
 };
 
 export function QuickAddForm({
@@ -23,10 +33,14 @@ export function QuickAddForm({
   scannedBarcode,
   onBarcodeClear,
   onScanRequest,
+  categories = [],
+  brands: _brands = [],
+  units = [],
 }: QuickAddFormProps) {
   const [productName, setProductName] = useState("");
-  const [price, setPrice] = useState("");            // final price (what you pay)
-  const [originalPrice, setOriginalPrice] = useState<number | null>(null); // pre-discount
+  const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
+  const [price, setPrice] = useState("");
+  const [originalPrice, setOriginalPrice] = useState<number | null>(null);
   const [showDiscountModal, setShowDiscountModal] = useState(false);
   const [quantity, setQuantity] = useState("1");
   const [barcode, setBarcode] = useState<string | undefined>();
@@ -36,17 +50,42 @@ export function QuickAddForm({
   const formRef = useRef<HTMLFormElement>(null);
   const lastScannedRef = useRef<string | undefined>(undefined);
 
+  // Long-press state
+  const [isHolding, setIsHolding] = useState(false);
+  const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const holdFiredRef = useRef(false);
+
+  // Details modal state
+  const [showDetails, setShowDetails] = useState(false);
+  const [detailName, setDetailName] = useState("");
+  const [detailBarcode, setDetailBarcode] = useState("");
+  const [detailCategoryId, setDetailCategoryId] = useState("");
+  const [detailSubcategoryId, setDetailSubcategoryId] = useState("");
+  const [detailBrandSearch, setDetailBrandSearch] = useState("");
+  const [detailBrandId, setDetailBrandId] = useState<string | null>(null);
+  const [detailTags, setDetailTags] = useState("");
+  const [detailMeasurementQty, setDetailMeasurementQty] = useState("");
+  const [detailUnitId, setDetailUnitId] = useState("");
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
+
   const { t } = useT();
+  const { isAdminOrModerator } = useUser();
+
   const hasDiscount = originalPrice !== null && originalPrice > parseFloat(price);
   const discountPct = hasDiscount
     ? Math.round((1 - parseFloat(price) / originalPrice!) * 100)
     : 0;
+
+  // Can open details modal: admin/mod always, regular users only for new (not-in-DB) products
+  const canOpenDetails = !!productName.trim() && (isAdminOrModerator || !selectedProductId);
 
   // When a barcode is scanned, look up the product
   useEffect(() => {
     if (!scannedBarcode || scannedBarcode === lastScannedRef.current) return;
     lastScannedRef.current = scannedBarcode;
     setBarcode(scannedBarcode);
+    setSelectedProductId(null);
     setBarcodeStatus(t("shopping.lookingUpBarcode"));
 
     async function doLookup() {
@@ -56,8 +95,9 @@ export function QuickAddForm({
 
         if (result.found) {
           setProductName(result.name);
-          const { createBrowserSupabaseClient } = await import("@/lib/supabase/client");
-          const supabase = createBrowserSupabaseClient();
+          setSelectedProductId(result.productId ?? null);
+          const { createBrowserSupabaseClient: mkClient } = await import("@/lib/supabase/client");
+          const supabase = mkClient();
           const { data: entry } = await supabase
             .from("product_entries")
             .select("price")
@@ -83,6 +123,7 @@ export function QuickAddForm({
 
   function handleProductSelect(product: ProductResult) {
     setProductName(product.name);
+    setSelectedProductId(product.id);
     if (product.lastPrice != null) {
       setPrice(product.lastPrice.toFixed(2));
       setOriginalPrice(null);
@@ -99,8 +140,7 @@ export function QuickAddForm({
     setShowDiscountModal(false);
   }
 
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  function doSubmit() {
     setError(null);
 
     if (!storeId) {
@@ -139,21 +179,205 @@ export function QuickAddForm({
           return;
         }
         onItemAdded(result);
-        setProductName("");
-        setPrice("");
-        setOriginalPrice(null);
-        setQuantity("1");
-        setBarcode(undefined);
-        setBarcodeStatus(null);
-        lastScannedRef.current = undefined;
-        onBarcodeClear?.();
+        resetForm();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to add item");
       }
     });
   }
 
+  function resetForm() {
+    setProductName("");
+    setSelectedProductId(null);
+    setPrice("");
+    setOriginalPrice(null);
+    setQuantity("1");
+    setBarcode(undefined);
+    setBarcodeStatus(null);
+    lastScannedRef.current = undefined;
+    onBarcodeClear?.();
+  }
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    doSubmit();
+  }
+
+  // ── Long-press logic ─────────────────────────────────────────────────────
+
+  async function openDetailsModal() {
+    // Pre-fill modal with current form state
+    setDetailName(productName);
+    setDetailBarcode(barcode ?? "");
+    setDetailCategoryId("");
+    setDetailSubcategoryId("");
+    setDetailBrandSearch("");
+    setDetailBrandId(null);
+    setDetailTags("");
+    setDetailMeasurementQty("");
+    setDetailUnitId(units.find((u) => u.is_default)?.id ?? "");
+    setDetailError(null);
+
+    // For admin/mod with an existing product, load its current details
+    if (isAdminOrModerator && selectedProductId) {
+      try {
+        const supabase = createBrowserSupabaseClient();
+        const { data: prod } = await supabase
+          .from("products")
+          .select("barcode, category_id, subcategory_id, brand_id, tags, measurement_quantity, unit_id")
+          .eq("id", selectedProductId)
+          .single();
+        if (prod) {
+          if (prod.barcode) setDetailBarcode(prod.barcode);
+          setDetailCategoryId((prod.category_id as string | null) ?? "");
+          setDetailSubcategoryId((prod.subcategory_id as string | null) ?? "");
+          setDetailBrandId((prod.brand_id as string | null) ?? null);
+          setDetailTags(((prod.tags as string[] | null) ?? []).join(", "));
+          setDetailMeasurementQty(prod.measurement_quantity != null ? String(prod.measurement_quantity) : "");
+          setDetailUnitId((prod.unit_id as string | null) ?? "");
+
+          // Resolve brand name for BrandSearch display
+          if (prod.brand_id) {
+            const { data: brandRow } = await supabase
+              .from("brands")
+              .select("name")
+              .eq("id", prod.brand_id)
+              .single();
+            if (brandRow) setDetailBrandSearch(brandRow.name);
+          }
+        }
+      } catch {
+        // silently ignore — modal still opens with partial data
+      }
+    }
+
+    setShowDetails(true);
+  }
+
+  function handleHoldStart(e: React.MouseEvent | React.TouchEvent) {
+    if (disabled || isPending || !canOpenDetails) return;
+    // Prevent context menu on mobile long-press
+    e.preventDefault();
+    holdFiredRef.current = false;
+    setIsHolding(true);
+    holdTimerRef.current = setTimeout(() => {
+      holdFiredRef.current = true;
+      setIsHolding(false);
+      holdTimerRef.current = null;
+      openDetailsModal();
+    }, 600);
+  }
+
+  function handleHoldEnd() {
+    if (holdTimerRef.current) {
+      // Timer hasn't fired yet → short press → normal submit
+      clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+      setIsHolding(false);
+      if (!holdFiredRef.current) {
+        doSubmit();
+      }
+    } else {
+      setIsHolding(false);
+    }
+  }
+
+  function handleHoldCancel() {
+    if (holdTimerRef.current) {
+      clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+    setIsHolding(false);
+  }
+
+  // ── Details modal submit ─────────────────────────────────────────────────
+
+  async function handleDetailsSave() {
+    setDetailLoading(true);
+    setDetailError(null);
+
+    // Resolve brand
+    let resolvedBrandId = detailBrandId;
+    if (detailBrandSearch.trim() && !resolvedBrandId) {
+      const brandResult = await getOrCreateBrand(detailBrandSearch.trim());
+      if (brandResult.error) { setDetailError(brandResult.error); setDetailLoading(false); return; }
+      resolvedBrandId = brandResult.id ?? null;
+    }
+    if (!detailBrandSearch.trim()) resolvedBrandId = null;
+
+    const parsedTags = detailTags.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+    const parsedMeasurement = detailMeasurementQty ? parseFloat(detailMeasurementQty) : null;
+    const resolvedBarcode = detailBarcode.trim() || undefined;
+
+    let finalProductId = selectedProductId;
+
+    if (isAdminOrModerator && selectedProductId) {
+      // Update existing product
+      const result = await adminUpdateProduct(selectedProductId, {
+        name: detailName,
+        barcode: resolvedBarcode,
+        categoryId: detailCategoryId || undefined,
+        subcategoryId: detailSubcategoryId || undefined,
+        brandId: resolvedBrandId,
+        tags: parsedTags,
+        measurementQuantity: parsedMeasurement,
+        unitId: detailUnitId || undefined,
+      });
+      if (result.error) { setDetailError(result.error); setDetailLoading(false); return; }
+    } else {
+      // Create new product
+      const result = await createProduct({
+        name: detailName,
+        barcode: resolvedBarcode,
+        categoryId: detailCategoryId || undefined,
+        subcategoryId: detailSubcategoryId || undefined,
+        brandId: resolvedBrandId,
+        tags: parsedTags,
+        measurementQuantity: parsedMeasurement,
+        unitId: detailUnitId || undefined,
+      });
+      if (result.error) { setDetailError(result.error); setDetailLoading(false); return; }
+      finalProductId = result.data?.id ?? null;
+    }
+
+    setDetailLoading(false);
+    setShowDetails(false);
+
+    // Update form with any changes from modal
+    setProductName(detailName);
+    if (resolvedBarcode) setBarcode(resolvedBarcode);
+    if (finalProductId) setSelectedProductId(finalProductId);
+
+    // Now add to cart
+    const parsedPrice = parseFloat(price);
+    const parsedQuantity = parseFloat(quantity);
+
+    if (!isNaN(parsedPrice) && parsedPrice > 0 && !isNaN(parsedQuantity) && parsedQuantity > 0) {
+      startTransition(async () => {
+        try {
+          const result = await addCartItemOffline(cartId, {
+            productName: detailName,
+            price: parsedPrice,
+            originalPrice: hasDiscount ? originalPrice : null,
+            quantity: parsedQuantity,
+            storeId,
+            barcode: resolvedBarcode,
+          });
+          if ("error" in result) {
+            setError(result.error);
+            return;
+          }
+          onItemAdded(result);
+          resetForm();
+        } catch (err) {
+          setError(err instanceof Error ? err.message : "Failed to add item");
+        }
+      });
+    }
+  }
+
   const disabled = !storeId;
+  const subcategories = categories.filter((c) => c.parent_id === detailCategoryId);
 
   return (
     <>
@@ -185,7 +409,10 @@ export function QuickAddForm({
                 onSelect={handleProductSelect}
                 placeholder={t("shopping.productNamePlaceholder")}
                 value={productName}
-                onValueChange={setProductName}
+                onValueChange={(v) => {
+                  setProductName(v);
+                  setSelectedProductId(null); // clear selection when manually typing
+                }}
                 disabled={disabled}
                 storeId={storeId}
               />
@@ -194,7 +421,7 @@ export function QuickAddForm({
 
           {/* Row 2: price + qty + discount + add */}
           <div className="flex gap-2">
-            {/* Price — shows discount badge if active */}
+            {/* Price */}
             <div className="relative w-24 flex-shrink-0">
               <input
                 type="number"
@@ -204,7 +431,6 @@ export function QuickAddForm({
                 value={price}
                 onChange={(e) => {
                   setPrice(e.target.value);
-                  // Clear discount if price changes manually
                   setOriginalPrice(null);
                 }}
                 placeholder={t("shopping.price")}
@@ -251,10 +477,21 @@ export function QuickAddForm({
               </svg>
             </button>
 
+            {/* Add button — long-press opens details modal */}
             <button
-              type="submit"
+              type="button"
+              onMouseDown={canOpenDetails ? handleHoldStart : undefined}
+              onMouseUp={canOpenDetails ? handleHoldEnd : undefined}
+              onMouseLeave={canOpenDetails ? handleHoldCancel : undefined}
+              onTouchStart={canOpenDetails ? handleHoldStart : undefined}
+              onTouchEnd={canOpenDetails ? handleHoldEnd : undefined}
+              onTouchCancel={canOpenDetails ? handleHoldCancel : undefined}
+              onClick={!canOpenDetails ? doSubmit : undefined}
               disabled={isPending || disabled}
-              className="flex-1 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
+              title={canOpenDetails ? t("shopping.holdToEditHint") : undefined}
+              className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium text-white transition-colors disabled:opacity-50 select-none ${
+                isHolding ? "animate-hold-charge" : "bg-blue-600 hover:bg-blue-700"
+              }`}
             >
               {isPending ? "..." : t("common.add")}
             </button>
@@ -270,6 +507,137 @@ export function QuickAddForm({
           onReset={() => setOriginalPrice(null)}
           onClose={() => setShowDiscountModal(false)}
         />
+      )}
+
+      {/* Product details modal */}
+      {showDetails && (
+        <Modal
+          open={showDetails}
+          onClose={() => { setShowDetails(false); setDetailError(null); }}
+          title={t("shopping.productDetails")}
+        >
+          <div className="space-y-3">
+            {/* Name */}
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">{t("products.productName")}</label>
+              <input
+                type="text"
+                value={detailName}
+                onChange={(e) => setDetailName(e.target.value)}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+
+            {/* Barcode */}
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">{t("products.barcode")}</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={detailBarcode}
+                onChange={(e) => setDetailBarcode(e.target.value)}
+                placeholder="e.g. 5601234567890"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+
+            {/* Category */}
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">{t("products.category")}</label>
+              <select
+                value={detailCategoryId}
+                onChange={(e) => { setDetailCategoryId(e.target.value); setDetailSubcategoryId(""); }}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="">{t("products.categoryOptional")}</option>
+                {categories.filter((c) => !c.parent_id && c.is_active).map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Subcategory */}
+            {detailCategoryId && subcategories.length > 0 && (
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">{t("products.subcategory")}</label>
+                <select
+                  value={detailSubcategoryId}
+                  onChange={(e) => setDetailSubcategoryId(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value="">{t("products.noSubcategory")}</option>
+                  {subcategories.filter((c) => c.is_active).map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* Brand */}
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">{t("products.brand")}</label>
+              <BrandSearch
+                value={detailBrandSearch}
+                brandId={detailBrandId}
+                onChange={(name, id) => { setDetailBrandSearch(name); setDetailBrandId(id); }}
+                placeholder={t("products.brandPlaceholder")}
+              />
+            </div>
+
+            {/* Measurement: quantity + unit */}
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <label className="mb-1 block text-sm font-medium text-gray-700">{t("products.measurementQuantity")}</label>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  step="0.001"
+                  min="0"
+                  value={detailMeasurementQty}
+                  onChange={(e) => setDetailMeasurementQty(e.target.value)}
+                  placeholder="500"
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+              <div className="flex-1">
+                <label className="mb-1 block text-sm font-medium text-gray-700">{t("products.unit")}</label>
+                <select
+                  value={detailUnitId}
+                  onChange={(e) => setDetailUnitId(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value="">{t("products.selectUnit")}</option>
+                  {units.map((u) => (
+                    <option key={u.id} value={u.id}>{u.name} ({u.abbreviation})</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Tags */}
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">{t("products.tags")}</label>
+              <input
+                type="text"
+                value={detailTags}
+                onChange={(e) => setDetailTags(e.target.value)}
+                placeholder={t("products.tagsPlaceholder")}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+
+            {detailError && <p className="text-sm text-red-600">{detailError}</p>}
+
+            <button
+              type="button"
+              onClick={handleDetailsSave}
+              disabled={detailLoading || !detailName.trim()}
+              className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            >
+              {detailLoading ? "..." : t("shopping.saveAndAdd")}
+            </button>
+          </div>
+        </Modal>
       )}
     </>
   );
