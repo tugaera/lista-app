@@ -1,23 +1,16 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { getCachedUser, getCachedProfile } from "@/lib/supabase/cached";
 import { redirect } from "next/navigation";
 import { getMyInvites } from "@/features/users/actions";
 import { ProfilePage } from "@/features/users/components/profile-page";
 
 export default async function ProfileRoute() {
-  const supabase = await createServerSupabaseClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCachedUser();
 
   if (!user) redirect("/auth/login");
 
-  // Check if user is admin/moderator to load invites
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-
+  // Use cached profile (already fetched in layout) instead of a separate DB query
+  const profile = await getCachedProfile();
   const isAdminOrMod = profile?.role === "admin" || profile?.role === "moderator";
 
   // Only fetch invites for admin/moderator
@@ -27,6 +20,7 @@ export default async function ProfileRoute() {
   const usedInvites = invitesResult.invites.filter((i) => i.used_by);
   let invitedUsers: { id: string; email: string; created_at: string }[] = [];
   if (usedInvites.length > 0) {
+    const supabase = await createServerSupabaseClient();
     const userIds = usedInvites.map((i) => i.used_by!);
     const { data } = await supabase
       .from("profiles")

@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { getCachedUser } from "@/lib/supabase/cached";
 import { JoinCartConfirm } from "./join-cart-confirm";
 
 export default async function JoinCartPage({
@@ -8,10 +8,7 @@ export default async function JoinCartPage({
   params: Promise<{ cartId: string }>;
 }) {
   const { cartId } = await params;
-  const supabase = await createServerSupabaseClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCachedUser();
 
   if (!user) redirect(`/auth/login?next=/shopping/join/${cartId}`);
 

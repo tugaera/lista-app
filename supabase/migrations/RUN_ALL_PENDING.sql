@@ -990,5 +990,8 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 ALTER TABLE units ADD COLUMN IF NOT EXISTS is_default boolean NOT NULL DEFAULT false;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_units_single_default ON units (is_default) WHERE is_default = true;
 
+-- === Migration 027: is_verified on brands ===
+ALTER TABLE brands ADD COLUMN IF NOT EXISTS is_verified boolean NOT NULL DEFAULT true;
+
 -- DONE! All migrations applied.
 -- ============================================================

@@ -23,18 +23,27 @@ export interface ProductWithHistory extends Product {
   entries: (ProductEntry & { store_name: string })[];
 }
 
+const PAGE_SIZE = 20;
+
 export async function searchProducts(
-  query: string
-): Promise<{ data: ProductWithLatestPrice[]; error: string | null }> {
+  query: string,
+  offset: number = 0,
+): Promise<{ data: ProductWithLatestPrice[]; error: string | null; hasMore: boolean }> {
   const supabase = await createServerSupabaseClient();
 
-  let result = await supabase
+  // When searching, return all matches (up to 500). When browsing, paginate.
+  const isSearching = query.length >= 2;
+  const limit = isSearching ? 500 : PAGE_SIZE;
+
+  let q = supabase
     .from("products")
     .select("id, name, barcode, category_id, subcategory_id, brand_id, tags, measurement_quantity, unit_id, is_active, created_at")
     .ilike("name", `%${query}%`)
     .eq("is_active", true)
     .order("name")
-    .limit(50);
+    .range(offset, offset + limit - 1);
+
+  let result = await q;
 
   // Fallback if new columns don't exist yet
   if (result.error) {
@@ -44,36 +53,27 @@ export async function searchProducts(
       .ilike("name", `%${query}%`)
       .eq("is_active", true)
       .order("name")
-      .limit(50) as typeof result;
+      .range(offset, offset + limit - 1) as typeof result;
   }
 
   const products = result.data ?? [];
   const error = result.error;
   if (error) {
-    return { data: [], error: error.message };
+    return { data: [], error: error.message, hasMore: false };
   }
 
   const productIds = products.map((p) => p.id);
 
-  // Query product_entries directly (includes original_price from migration 010)
-  let latestEntries = await supabase
-    .from("product_entries")
-    .select("product_id, price, original_price, created_at, stores(name)")
-    .in("product_id", productIds)
-    .order("created_at", { ascending: false });
+  // Use the latest_product_prices view — already has only the most recent
+  // price per product per store, avoiding a full scan of product_entries
+  const { data: latestPrices } = await supabase
+    .from("latest_product_prices")
+    .select("product_id, price, original_price, store_name")
+    .in("product_id", productIds);
 
-  // Fallback if original_price column doesn't exist yet (migration 010)
-  if (latestEntries.error?.message?.includes("original_price")) {
-    latestEntries = await supabase
-      .from("product_entries")
-      .select("product_id, price, created_at, stores(name)")
-      .in("product_id", productIds)
-      .order("created_at", { ascending: false }) as typeof latestEntries;
-  }
-
-  // Keep only the most recent entry per product
+  // Keep only the first (most recent) entry per product
   const priceMap = new Map<string, Record<string, unknown>>();
-  for (const entry of (latestEntries.data ?? []) as unknown as Record<string, unknown>[]) {
+  for (const entry of (latestPrices ?? []) as unknown as Record<string, unknown>[]) {
     const pid = entry.product_id as string;
     if (!priceMap.has(pid)) {
       priceMap.set(pid, entry);
@@ -82,7 +82,6 @@ export async function searchProducts(
 
   const results: ProductWithLatestPrice[] = products.map((p) => {
     const latest = priceMap.get(p.id);
-    const store = latest?.stores as { name: string } | null;
     return {
       id: p.id,
       name: p.name,
@@ -101,11 +100,11 @@ export async function searchProducts(
       unit_abbreviation: null,
       latest_price: (latest?.price as number) ?? null,
       latest_original_price: (latest?.original_price as number) ?? null,
-      latest_store_name: store?.name ?? null,
+      latest_store_name: (latest?.store_name as string) ?? null,
     };
   });
 
-  return { data: results, error: null };
+  return { data: results, error: null, hasMore: !isSearching && products.length === limit };
 }
 
 export async function getProductByBarcode(
@@ -378,19 +377,23 @@ export async function getProductWithHistory(
 
 // ── Admin actions ─────────────────────────────────────────────────────────────
 
-export async function getAdminProducts(query: string = ""): Promise<{
+export async function getAdminProducts(query: string = "", offset: number = 0): Promise<{
   data: ProductWithLatestPrice[];
   error: string | null;
+  hasMore: boolean;
 }> {
   const supabase = await createServerSupabaseClient();
+
+  const isSearching = query.length >= 2;
+  const limit = isSearching ? 500 : PAGE_SIZE;
 
   let q = supabase
     .from("products")
     .select("id, name, barcode, category_id, subcategory_id, brand_id, tags, measurement_quantity, unit_id, is_active, created_at")
     .order("name")
-    .limit(100);
+    .range(offset, offset + limit - 1);
 
-  if (query.length >= 2) {
+  if (isSearching) {
     q = q.ilike("name", `%${query}%`);
   }
 
@@ -402,8 +405,8 @@ export async function getAdminProducts(query: string = ""): Promise<{
       .from("products")
       .select("id, name, barcode, category_id, is_active, created_at")
       .order("name")
-      .limit(100);
-    if (query.length >= 2) {
+      .range(offset, offset + limit - 1);
+    if (isSearching) {
       q2 = q2.ilike("name", `%${query}%`);
     }
     adminResult = await q2 as typeof adminResult;
@@ -411,7 +414,7 @@ export async function getAdminProducts(query: string = ""): Promise<{
 
   const products = adminResult.data ?? [];
   const error = adminResult.error;
-  if (error) return { data: [], error: error.message };
+  if (error) return { data: [], error: error.message, hasMore: false };
 
   const productIds = (products ?? []).map((p) => p.id);
   const { data: latestPrices } = productIds.length
@@ -455,6 +458,7 @@ export async function getAdminProducts(query: string = ""): Promise<{
       };
     }),
     error: null,
+    hasMore: !isSearching && (products ?? []).length === limit,
   };
 }
 

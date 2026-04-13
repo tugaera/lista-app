@@ -1,14 +1,11 @@
 import { redirect } from "next/navigation";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { getCachedUser } from "@/lib/supabase/cached";
 import { HistoryPage } from "@/features/history/components/history-page";
 import { getCartHistory } from "@/features/history/actions";
 import { getStores } from "@/features/stores/actions";
 
 export default async function HistoryRoute() {
-  const supabase = await createServerSupabaseClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCachedUser();
 
   if (!user) redirect("/auth/login");
 

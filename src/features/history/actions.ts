@@ -17,8 +17,11 @@ export type CartHistoryEntry = {
   owner_email: string | null;
 };
 
-export async function getCartHistory(): Promise<{
+const HISTORY_PAGE_SIZE = 50;
+
+export async function getCartHistory(offset: number = 0): Promise<{
   carts: CartHistoryEntry[];
+  hasMore: boolean;
   error?: string;
 }> {
   const supabase = await createServerSupabaseClient();
@@ -30,7 +33,7 @@ export async function getCartHistory(): Promise<{
     redirect("/auth/login");
   }
 
-  // Own finalized carts
+  // Own finalized carts — paginated
   const { data: ownCarts, error } = await supabase
     .from("shopping_carts")
     .select(
@@ -38,10 +41,11 @@ export async function getCartHistory(): Promise<{
     )
     .eq("user_id", user.id)
     .not("finalized_at", "is", null)
-    .order("finalized_at", { ascending: false });
+    .order("finalized_at", { ascending: false })
+    .range(offset, offset + HISTORY_PAGE_SIZE - 1);
 
   if (error) {
-    return { error: error.message, carts: [] };
+    return { error: error.message, carts: [], hasMore: false };
   }
 
   const ownCartsFormatted: CartHistoryEntry[] = (ownCarts ?? []).map((cart) => {
@@ -99,7 +103,8 @@ export async function getCartHistory(): Promise<{
       new Date(a.finalized_at ?? a.created_at).getTime(),
   );
 
-  return { carts: allCarts };
+  const hasMore = (ownCarts ?? []).length === HISTORY_PAGE_SIZE;
+  return { carts: allCarts, hasMore };
 }
 
 export async function getCartDetail(cartId: string) {

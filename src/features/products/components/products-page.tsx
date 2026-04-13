@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -36,6 +36,7 @@ import {
 import type { Category, ProductEntry, Brand, Unit } from "@/types/database";
 import type { Store } from "@/features/stores/actions";
 import { getOrCreateBrand } from "@/features/brands/actions";
+import { BrandSearch } from "@/features/brands/components/brand-search";
 
 interface ProductsPageProps {
   categories: Category[];
@@ -76,11 +77,16 @@ export function ProductsPage({ categories, brands, units, stores = [] }: Product
   const { t } = useT();
   const { isAdminOrModerator } = useUser();
 
-  // Search
+  // Search + infinite scroll
   const [query, setQuery] = useState("");
   const debouncedQuery = useDebounce(query, 300);
   const [products, setProducts] = useState<ProductWithLatestPrice[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [offset, setOffset] = useState(0);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const loadingMoreRef = useRef(false);
 
   // Detail modal
   const [selectedProduct, setSelectedProduct] = useState<ProductWithHistory | null>(null);
@@ -137,25 +143,41 @@ export function ProductsPage({ categories, brands, units, stores = [] }: Product
   const [deleteChecking, setDeleteChecking] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  // ── Search ──────────────────────────────────────────────────────────────
+  // ── Search + pagination ─────────────────────────────────────────────────
 
-  const doSearch = useCallback(async (searchQuery: string) => {
-    setLoading(true);
-    // Admin/mod sees all products (including inactive); regular users see active only
-    const result = isAdminOrModerator
-      ? await getAdminProducts(searchQuery)
-      : await searchProducts(searchQuery);
-    // Resolve category/brand/unit names client-side (server omits FK joins to avoid ambiguity)
-    const enriched = result.data.map((p) => ({
+  function enrich(data: ProductWithLatestPrice[]) {
+    return data.map((p) => ({
       ...p,
       category_name: categories.find((c) => c.id === p.category_id)?.name ?? null,
       subcategory_name: categories.find((c) => c.id === p.subcategory_id)?.name ?? null,
       brand_name: brands.find((b) => b.id === p.brand_id)?.name ?? null,
       unit_abbreviation: units.find((u) => u.id === p.unit_id)?.abbreviation ?? null,
     }));
-    setProducts(enriched);
+  }
+
+  const doSearch = useCallback(async (searchQuery: string) => {
+    setLoading(true);
+    setOffset(0);
+    const result = isAdminOrModerator
+      ? await getAdminProducts(searchQuery, 0)
+      : await searchProducts(searchQuery, 0);
+    setProducts(enrich(result.data));
+    setHasMore(result.hasMore);
     setLoading(false);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdminOrModerator, categories, brands, units]);
+
+  async function handleLoadMore() {
+    const nextOffset = offset + products.length;
+    setLoadingMore(true);
+    const result = isAdminOrModerator
+      ? await getAdminProducts(debouncedQuery, nextOffset)
+      : await searchProducts(debouncedQuery, nextOffset);
+    setProducts((prev) => [...prev, ...enrich(result.data)]);
+    setOffset(nextOffset);
+    setHasMore(result.hasMore);
+    setLoadingMore(false);
+  }
 
   useEffect(() => {
     if (debouncedQuery.length >= 2) {
@@ -164,6 +186,26 @@ export function ProductsPage({ categories, brands, units, stores = [] }: Product
       doSearch("");
     }
   }, [debouncedQuery, doSearch]);
+
+  // Keep loadingMoreRef in sync so the IntersectionObserver closure sees latest value
+  useEffect(() => { loadingMoreRef.current = loadingMore; }, [loadingMore]);
+
+  // Infinite scroll — trigger when sentinel enters viewport
+  useEffect(() => {
+    if (!sentinelRef.current) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && !loadingMoreRef.current) {
+          handleLoadMore();
+        }
+      },
+      { rootMargin: "200px" },
+    );
+    observer.observe(sentinelRef.current);
+    return () => observer.disconnect();
+  // Re-attach whenever hasMore or the product list changes
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasMore, products.length]);
 
   // ── Product detail / edit ───────────────────────────────────────────────
 
@@ -569,6 +611,12 @@ export function ProductsPage({ categories, brands, units, stores = [] }: Product
 
             </Card>
           ))}
+          {/* Infinite scroll sentinel */}
+          {hasMore && (
+            <div ref={sentinelRef} className="col-span-full flex justify-center py-4">
+              {loadingMore && <Spinner size="sm" />}
+            </div>
+          )}
         </div>
       )}
 
@@ -647,26 +695,14 @@ export function ProductsPage({ categories, brands, units, stores = [] }: Product
                       </select>
                     </div>
                   )}
-                  <div className="relative">
+                  <div>
                     <label className="mb-1 block text-sm font-medium text-gray-700">{t("products.brand")}</label>
-                    <input
-                      type="text"
+                    <BrandSearch
                       value={editBrandSearch}
-                      onChange={(e) => {
-                        setEditBrandSearch(e.target.value);
-                        // Match existing brand
-                        const match = brands.find((b) => b.name.toLowerCase() === e.target.value.trim().toLowerCase());
-                        setEditBrandId(match?.id ?? null);
-                      }}
+                      brandId={editBrandId}
+                      onChange={(name, id) => { setEditBrandSearch(name); setEditBrandId(id); }}
                       placeholder={t("products.brandPlaceholder")}
-                      className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
-                      list="edit-brand-suggestions"
                     />
-                    <datalist id="edit-brand-suggestions">
-                      {brands.filter((b) => b.is_active).map((b) => (
-                        <option key={b.id} value={b.name} />
-                      ))}
-                    </datalist>
                   </div>
                   <div>
                     <label className="mb-1 block text-sm font-medium text-gray-700">{t("products.tags")}</label>
@@ -1062,23 +1098,12 @@ export function ProductsPage({ categories, brands, units, stores = [] }: Product
           )}
           <div className="flex flex-col gap-1.5">
             <label className="text-sm font-medium text-gray-700">{t("products.brand")}</label>
-            <input
-              type="text"
+            <BrandSearch
               value={newBrandSearch}
-              onChange={(e) => {
-                setNewBrandSearch(e.target.value);
-                const match = brands.find((b) => b.name.toLowerCase() === e.target.value.trim().toLowerCase());
-                setNewBrandId(match?.id ?? null);
-              }}
+              brandId={newBrandId}
+              onChange={(name, id) => { setNewBrandSearch(name); setNewBrandId(id); }}
               placeholder={t("products.brandPlaceholder")}
-              className="w-full rounded-xl border border-gray-300 px-4 py-2 text-gray-900 transition focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-              list="add-brand-suggestions"
             />
-            <datalist id="add-brand-suggestions">
-              {brands.filter((b) => b.is_active).map((b) => (
-                <option key={b.id} value={b.name} />
-              ))}
-            </datalist>
           </div>
           <div className="flex flex-col gap-1.5">
             <label className="text-sm font-medium text-gray-700">{t("products.tags")}</label>

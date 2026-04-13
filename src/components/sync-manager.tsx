@@ -1,23 +1,30 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { syncPendingMutations } from "@/lib/offline/sync";
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
 
+// Minimum time the app must have been hidden before a visibility-change
+// refresh is triggered (avoids refreshing on trivial tab switches).
+const VISIBILITY_REFRESH_AFTER_MS = 30_000; // 30 seconds
+
 export function SyncManager() {
+  const router = useRouter();
   const { isOnline } = useOnlineStatus();
   const wasOffline = useRef(false);
+  const hiddenAtRef = useRef<number | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<{ synced: number; failed: number } | null>(null);
 
+  // ── Push pending offline mutations then pull fresh server state ──────────
   useEffect(() => {
     if (!isOnline) {
       wasOffline.current = true;
       return;
     }
 
-    // Sync when coming back online or on initial mount
     async function doSync() {
       const supabase = createBrowserSupabaseClient();
       setSyncing(true);
@@ -32,11 +39,37 @@ export function SyncManager() {
       } finally {
         setSyncing(false);
         wasOffline.current = false;
+        // Always refresh server components after sync so shared-cart
+        // partners see each other's changes (including what was added
+        // while this user was offline).
+        router.refresh();
       }
     }
 
     doSync();
-  }, [isOnline]);
+  }, [isOnline, router]);
+
+  // ── Refresh when app comes back to foreground ────────────────────────────
+  // Handles: screen lock/unlock, app backgrounded, tab switch.
+  // This is the main fix for shared-cart stale data after phone sleep.
+  useEffect(() => {
+    function handleVisibilityChange() {
+      if (document.visibilityState === "hidden") {
+        hiddenAtRef.current = Date.now();
+      } else if (document.visibilityState === "visible") {
+        const hiddenFor = hiddenAtRef.current
+          ? Date.now() - hiddenAtRef.current
+          : Infinity;
+        hiddenAtRef.current = null;
+        if (hiddenFor >= VISIBILITY_REFRESH_AFTER_MS) {
+          router.refresh();
+        }
+      }
+    }
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [router]);
 
   if (!syncing && !syncResult) return null;
 

@@ -20,14 +20,30 @@ async function requireAdmin(supabase: Awaited<ReturnType<typeof createServerSupa
   return null;
 }
 
+async function getUserRole(supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>): Promise<string | null> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return null;
+  const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+  return profile?.role ?? null;
+}
+
 export async function getBrands(): Promise<{ data: Brand[]; error: string | null }> {
   const supabase = await createServerSupabaseClient();
   const { data, error } = await supabase
     .from("brands")
-    .select("id, name, is_active, created_at")
+    .select("id, name, is_active, is_verified, created_at")
     .order("name", { ascending: true });
 
-  if (error) return { data: [], error: error.message };
+  // Fallback if is_verified column doesn't exist yet
+  if (error) {
+    const fallback = await supabase
+      .from("brands")
+      .select("id, name, is_active, created_at")
+      .order("name", { ascending: true });
+    if (fallback.error) return { data: [], error: fallback.error.message };
+    return { data: (fallback.data ?? []).map((b) => ({ ...b, is_verified: true })), error: null };
+  }
+
   return { data: data ?? [], error: null };
 }
 
@@ -42,7 +58,8 @@ export async function createBrand(
   const name = (formData.get("name") as string)?.trim();
   if (!name) return { error: "Brand name is required" };
 
-  const { error } = await supabase.from("brands").insert({ name });
+  // Brands created by admin/mod are auto-verified
+  const { error } = await supabase.from("brands").insert({ name, is_verified: true });
 
   if (error) {
     if (error.code === "23505") return { error: "A brand with this name already exists" };
@@ -99,6 +116,22 @@ export async function toggleBrandActive(
   return {};
 }
 
+export async function confirmBrand(brandId: string): Promise<{ error?: string }> {
+  const supabase = await createServerSupabaseClient();
+  const authError = await requireAdminOrModerator(supabase);
+  if (authError) return { error: authError };
+
+  const { error } = await supabase
+    .from("brands")
+    .update({ is_verified: true })
+    .eq("id", brandId);
+
+  if (error) return { error: error.message };
+  revalidatePath("/admin");
+  revalidatePath("/products");
+  return {};
+}
+
 export async function checkBrandDependencies(
   brandId: string,
 ): Promise<{ productCount: number }> {
@@ -134,7 +167,7 @@ export async function deleteBrand(
   return {};
 }
 
-/** Auto-create a brand if it doesn't exist. Used when saving a product with a new brand name. */
+/** Auto-create a brand if it doesn't exist. Regular users create unverified brands. */
 export async function getOrCreateBrand(name: string): Promise<{ id: string | null; error?: string }> {
   const supabase = await createServerSupabaseClient();
 
@@ -151,10 +184,14 @@ export async function getOrCreateBrand(name: string): Promise<{ id: string | nul
 
   if (existing) return { id: existing.id };
 
+  // Determine if user is admin/mod → auto-verify
+  const role = await getUserRole(supabase);
+  const isVerified = role === "admin" || role === "moderator";
+
   // Create new brand
   const { data: created, error } = await supabase
     .from("brands")
-    .insert({ name: trimmed })
+    .insert({ name: trimmed, is_verified: isVerified })
     .select("id")
     .single();
 

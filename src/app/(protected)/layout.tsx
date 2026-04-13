@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { getCachedUser, getCachedProfile } from "@/lib/supabase/cached";
 import { BottomNav } from "@/components/layout/bottom-nav";
 import { Sidebar } from "@/components/layout/sidebar";
 import { UserProvider } from "@/features/users/components/user-provider";
@@ -8,34 +9,26 @@ import type { Locale } from "@/i18n";
 import type { Profile } from "@/types/database";
 import { OfflineBanner } from "@/components/ui/offline-banner";
 import { SyncManager } from "@/components/sync-manager";
+import { PullToRefresh } from "@/components/ui/pull-to-refresh";
 
 export default async function ProtectedLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const supabase = await createServerSupabaseClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCachedUser();
 
   if (!user) {
     redirect("/auth/login");
   }
 
-  // Fetch profile
-  let profile: Profile | null = null;
-  const { data } = await supabase
-    .from("profiles")
-    .select("*")
-    .eq("id", user.id)
-    .single();
+  // Fast path: cached profile (runs once per request even if pages also call it)
+  let profile: Profile | null = await getCachedProfile();
 
-  if (data) {
-    profile = data;
-  } else {
-    // Profile doesn't exist yet (old user or trigger didn't fire)
-    // Try to create one
+  // Slow path: profile doesn't exist yet (old user or trigger didn't fire)
+  // This runs only on first-ever visit — not on every page load
+  if (!profile) {
+    const supabase = await createServerSupabaseClient();
     const { data: newProfile, error: insertError } = await supabase
       .from("profiles")
       .insert({
@@ -43,7 +36,7 @@ export default async function ProtectedLayout({
         email: user.email ?? "",
         role: "user" as const,
       })
-      .select("*")
+      .select("id, email, role, language, invited_by, created_at")
       .single();
 
     if (!insertError && newProfile) {
@@ -52,7 +45,7 @@ export default async function ProtectedLayout({
       // If insert also fails, try fetching again (maybe trigger created it)
       const { data: retryProfile } = await supabase
         .from("profiles")
-        .select("*")
+        .select("id, email, role, language, invited_by, created_at")
         .eq("id", user.id)
         .single();
       profile = retryProfile;
@@ -83,6 +76,7 @@ export default async function ProtectedLayout({
           <BottomNav />
           <OfflineBanner />
           <SyncManager />
+          <PullToRefresh />
         </div>
       </I18nProvider>
     </UserProvider>

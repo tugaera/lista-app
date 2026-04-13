@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { getCachedUser } from "@/lib/supabase/cached";
 import { getUsers } from "@/features/users/actions";
 import { getStores } from "@/features/stores/actions";
 import { getCategories } from "@/features/categories/actions";
@@ -13,10 +13,7 @@ import { UnitList } from "@/features/units/components/unit-list";
 import { AdminTabs } from "./admin-tabs";
 
 export default async function AdminPage() {
-  const supabase = await createServerSupabaseClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCachedUser();
 
   if (!user) redirect("/auth/login");
 

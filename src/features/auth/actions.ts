@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 export async function signUp(
@@ -31,10 +32,18 @@ export async function signUp(
     return { error: "Invalid or expired invite code" };
   }
 
-  // Create the user
+  // Derive app origin from request headers so the confirmation email
+  // always points back to this app regardless of environment
+  const headersList = await headers();
+  const host = headersList.get("host") ?? "";
+  const proto = headersList.get("x-forwarded-proto") ?? "https";
+  const origin = process.env.NEXT_PUBLIC_SITE_URL ?? `${proto}://${host}`;
+
+  // Create the user — emailRedirectTo sends the confirmation link to our callback
   const { data: authData, error: signUpError } = await supabase.auth.signUp({
     email,
     password,
+    options: { emailRedirectTo: `${origin}/auth/callback` },
   });
 
   if (signUpError) {

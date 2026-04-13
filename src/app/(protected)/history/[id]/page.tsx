@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { getCachedUser } from "@/lib/supabase/cached";
 import { CartDetailView } from "@/features/history/components/cart-detail-view";
-import { getCartReceiptImages } from "@/features/history/actions-receipts";
 
 export default async function CartDetailRoute({
   params,
@@ -9,10 +9,10 @@ export default async function CartDetailRoute({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const supabase = await createServerSupabaseClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const [user, supabase] = await Promise.all([
+    getCachedUser(),
+    createServerSupabaseClient(),
+  ]);
 
   if (!user) redirect("/auth/login");
 
@@ -62,13 +62,10 @@ export default async function CartDetailRoute({
 
   const items = itemsResult.data;
 
-  const { images: receiptImages } = await getCartReceiptImages(id);
-
   return (
     <CartDetailView
       cart={cart as never}
       items={(items ?? []) as never[]}
-      receiptImages={receiptImages}
     />
   );
 }

@@ -169,6 +169,44 @@ export async function extractReceiptItems(
   }
 }
 
+/**
+ * Extracts receipt items directly from an uploaded file without persisting it.
+ * Used by the active shopping cart receipt scan feature.
+ */
+export async function extractReceiptFromFile(
+  formData: FormData,
+): Promise<{ data: ExtractedReceipt } | { error: string }> {
+  const supabase = await createServerSupabaseClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) return { error: "Not authenticated" };
+
+  const file = formData.get("receipt") as File | null;
+  if (!file) return { error: "No file provided" };
+  if (!file.type.startsWith("image/")) return { error: "File must be an image" };
+  if (file.size > 10 * 1024 * 1024) return { error: "File must be less than 10MB" };
+
+  let imageBase64: string;
+  const mimeType = file.type;
+  try {
+    const buffer = await file.arrayBuffer();
+    imageBase64 = Buffer.from(buffer).toString("base64");
+  } catch {
+    return { error: "Failed to read image file" };
+  }
+
+  try {
+    const ai = getAIProvider();
+    const data = await ai.extractReceiptFromImage(imageBase64, mimeType);
+    return { data };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "AI extraction failed";
+    return { error: message };
+  }
+}
+
 export async function deleteCartReceiptImage(
   imageId: string,
 ): Promise<{ success: boolean; error?: string }> {

@@ -2,24 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useT } from "@/i18n/i18n-provider";
+import { BarcodeDetector as BarcodeDetectorPolyfill } from "barcode-detector";
 
 type BarcodeScannerProps = {
   onScan: (barcode: string) => void;
   onClose: () => void;
 };
-
-// BarcodeDetector API types (not yet in standard TS lib)
-declare global {
-  interface Window {
-    BarcodeDetector?: new (options?: {
-      formats: string[];
-    }) => {
-      detect: (
-        source: ImageBitmapSource,
-      ) => Promise<{ rawValue: string }[]>;
-    };
-  }
-}
 
 export function BarcodeScanner({ onScan, onClose }: BarcodeScannerProps) {
   const { t } = useT();
@@ -31,13 +19,8 @@ export function BarcodeScanner({ onScan, onClose }: BarcodeScannerProps) {
   const scanningRef = useRef(false);
 
   useEffect(() => {
-    if (!("BarcodeDetector" in window) || !window.BarcodeDetector) {
-      setIsSupported(false);
-      return;
-    }
-
     let cancelled = false;
-    const detector = new window.BarcodeDetector({
+    const detector = new BarcodeDetectorPolyfill({
       formats: ["ean_13", "ean_8", "upc_a", "upc_e", "code_128", "qr_code"],
     });
 
@@ -56,7 +39,7 @@ export function BarcodeScanner({ onScan, onClose }: BarcodeScannerProps) {
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
           await videoRef.current.play();
-          scanLoop(detector);
+          scanLoop();
         }
       } catch {
         setError(t("scanner.cameraError"));
@@ -64,14 +47,12 @@ export function BarcodeScanner({ onScan, onClose }: BarcodeScannerProps) {
       }
     }
 
-    async function scanLoop(
-      det: InstanceType<NonNullable<typeof window.BarcodeDetector>>,
-    ) {
+    async function scanLoop() {
       if (cancelled || !videoRef.current || scanningRef.current) return;
       scanningRef.current = true;
 
       try {
-        const barcodes = await det.detect(videoRef.current);
+        const barcodes = await detector.detect(videoRef.current);
         if (barcodes.length > 0 && !cancelled) {
           onScan(barcodes[0].rawValue);
           cleanup();
@@ -83,7 +64,7 @@ export function BarcodeScanner({ onScan, onClose }: BarcodeScannerProps) {
 
       scanningRef.current = false;
       if (!cancelled) {
-        requestAnimationFrame(() => scanLoop(det));
+        requestAnimationFrame(() => scanLoop());
       }
     }
 

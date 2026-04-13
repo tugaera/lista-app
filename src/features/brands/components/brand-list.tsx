@@ -10,6 +10,7 @@ import {
   createBrand,
   updateBrandName,
   toggleBrandActive,
+  confirmBrand,
   deleteBrand,
   checkBrandDependencies,
 } from "@/features/brands/actions";
@@ -59,14 +60,16 @@ function CreateBrandForm() {
 
 function BrandRow({ brand }: { brand: Brand }) {
   const { t } = useT();
-  const { isAdmin } = useUser();
+  const { isAdmin, isAdminOrModerator } = useUser();
 
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(brand.name);
   const [editError, setEditError] = useState("");
   const [isSaving, startSave] = useTransition();
   const [isToggling, startToggle] = useTransition();
+  const [isConfirming, startConfirm] = useTransition();
   const [confirmToggle, setConfirmToggle] = useState(false);
+  const [showConfirmBrand, setShowConfirmBrand] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [isDeleting, startDelete] = useTransition();
   const [deleteError, setDeleteError] = useState("");
@@ -130,9 +133,16 @@ function BrandRow({ brand }: { brand: Brand }) {
             {editError && <p className="text-xs text-red-500">{editError}</p>}
           </div>
         ) : (
-          <span className={`flex-1 text-sm ${brand.is_active ? "text-gray-900" : "text-gray-400"}`}>
-            {brand.name}
-          </span>
+          <div className="flex flex-1 items-center gap-2">
+            <span className={`text-sm ${brand.is_active ? "text-gray-900" : "text-gray-400"}`}>
+              {brand.name}
+            </span>
+            {!brand.is_verified && (
+              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+                {t("admin.brandUnverifiedHint")}
+              </span>
+            )}
+          </div>
         )}
 
         <div className="flex shrink-0 items-center gap-1">
@@ -147,6 +157,13 @@ function BrandRow({ brand }: { brand: Brand }) {
             </>
           ) : (
             <>
+              {!brand.is_verified && isAdminOrModerator && (
+                <button type="button" onClick={() => setShowConfirmBrand(true)} disabled={isConfirming} title={t("admin.confirmBrand")} className="rounded p-1.5 text-amber-500 hover:bg-emerald-50 hover:text-emerald-600 disabled:opacity-50">
+                  {isConfirming ? <SpinnerIcon className="h-3.5 w-3.5 animate-spin" /> : (
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                  )}
+                </button>
+              )}
               <button type="button" onClick={() => setEditing(true)} title={t("common.edit")} className="rounded p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600">
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
@@ -192,6 +209,21 @@ function BrandRow({ brand }: { brand: Brand }) {
         loading={isDeleting || checkingDeps || (productCount !== null && productCount > 0)}
       />
       {deleteError && <p className="text-xs text-red-500">{deleteError}</p>}
+
+      <ConfirmDialog
+        open={showConfirmBrand}
+        onClose={() => setShowConfirmBrand(false)}
+        onConfirm={() => {
+          setShowConfirmBrand(false);
+          startConfirm(async () => {
+            await confirmBrand(brand.id);
+          });
+        }}
+        title={t("admin.confirmBrand")}
+        message={t("admin.confirmBrandMsg")}
+        confirmLabel={t("admin.confirmBrand")}
+        loading={isConfirming}
+      />
     </>
   );
 }
@@ -199,8 +231,9 @@ function BrandRow({ brand }: { brand: Brand }) {
 export function BrandList({ initialBrands }: { initialBrands: Brand[] }) {
   const { t } = useT();
 
-  const active = initialBrands.filter((b) => b.is_active);
-  const inactive = initialBrands.filter((b) => !b.is_active);
+  const unverified = initialBrands.filter((b) => !b.is_verified);
+  const active = initialBrands.filter((b) => b.is_verified && b.is_active);
+  const inactive = initialBrands.filter((b) => b.is_verified && !b.is_active);
 
   return (
     <Card>
@@ -214,6 +247,16 @@ export function BrandList({ initialBrands }: { initialBrands: Brand[] }) {
         <p className="py-4 text-center text-sm text-gray-400">{t("admin.noBrands")}</p>
       ) : (
         <div className="space-y-1.5">
+          {unverified.length > 0 && (
+            <>
+              <div className="flex items-center gap-2 rounded-lg bg-amber-50 px-3 py-2">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                <p className="text-xs font-medium text-amber-700">{t("admin.unverifiedBrands")}</p>
+              </div>
+              {unverified.map((brand) => <BrandRow key={brand.id} brand={brand} />)}
+              {(active.length > 0 || inactive.length > 0) && <div className="my-2 border-t border-gray-100" />}
+            </>
+          )}
           {active.map((brand) => <BrandRow key={brand.id} brand={brand} />)}
           {inactive.length > 0 && (
             <>

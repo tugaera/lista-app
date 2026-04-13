@@ -316,6 +316,39 @@ export async function updateCartItemQuantity(
   return {};
 }
 
+export async function updateCartItemPriceAndQty(
+  cartId: string,
+  itemId: string,
+  price: number,
+  quantity: number,
+): Promise<{ error?: string }> {
+  const supabase = await createServerSupabaseClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) return { error: "Not authenticated" };
+
+  const { error: rpcErr } = await supabase.rpc("update_cart_item", {
+    p_item_id: itemId,
+    p_cart_id: cartId,
+    p_updates: { price, quantity },
+  });
+
+  if (rpcErr) {
+    const { error } = await supabase
+      .from("shopping_cart_items")
+      .update({ price, quantity })
+      .eq("id", itemId)
+      .eq("cart_id", cartId);
+
+    if (error) return { error: `Failed to update cart item: ${error.message}` };
+  }
+
+  await recalculateCartTotal(cartId);
+  return {};
+}
+
 export async function getActiveCart(
   userId: string,
 ): Promise<{ id: string; total: number }> {

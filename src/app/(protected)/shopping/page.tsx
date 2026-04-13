@@ -1,20 +1,24 @@
 import { redirect } from "next/navigation";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { getCachedUser, getCachedProfile } from "@/lib/supabase/cached";
 import { ShoppingPage } from "@/features/shopping/components/shopping-page";
 import { getCartItems } from "@/features/shopping/actions";
 import { getListWithItems, getListsPreview } from "@/features/lists/actions";
 import { getSharedWithMeCarts, getCartShares } from "@/features/shopping/actions-shares";
 import type { TrackingItem } from "@/features/shopping/components/list-tracking-panel";
+import { getCategories } from "@/features/categories/actions";
+import { getBrands } from "@/features/brands/actions";
+import { getUnits } from "@/features/units/actions";
 
 export default async function ShoppingRoute({
   searchParams,
 }: {
   searchParams: Promise<{ list?: string; cart?: string }>;
 }) {
-  const supabase = await createServerSupabaseClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const [user, supabase] = await Promise.all([
+    getCachedUser(),
+    createServerSupabaseClient(),
+  ]);
 
   if (!user) redirect("/auth/login");
 
@@ -100,13 +104,20 @@ export default async function ShoppingRoute({
     }
   }
 
-  // Parallel fetches
-  const [items, storesResult, listsResult, sharedWithMeCarts, initialShares] = await Promise.all([
+  // Check role from cached profile to decide if we need admin-only data
+  const profile = await getCachedProfile();
+  const isAdminOrMod = profile?.role === "admin" || profile?.role === "moderator";
+
+  // Parallel fetches — categories/brands/units only for admins/mods (used in long-press modal)
+  const [items, storesResult, listsResult, sharedWithMeCarts, initialShares, categoriesResult, brandsResult, unitsResult] = await Promise.all([
     getCartItems(cartId),
     supabase.from("stores").select("id, name, is_active, sort_order").eq("is_active", true).order("sort_order", { ascending: true, nullsFirst: false }).order("name", { ascending: true }),
     getListsPreview(),
     getSharedWithMeCarts(),
     isSharedCart ? Promise.resolve([]) : getCartShares(cartId),
+    isAdminOrMod ? getCategories() : Promise.resolve({ data: [] }),
+    isAdminOrMod ? getBrands() : Promise.resolve({ data: [] }),
+    isAdminOrMod ? getUnits() : Promise.resolve({ data: [] }),
   ]);
 
   // Load tracking list: from URL param, direct query, or RPC fallback for shared users
@@ -170,6 +181,9 @@ export default async function ShoppingRoute({
       initialShares={initialShares}
       currentUserId={user.id}
       currentUserEmail={user.email ?? ""}
+      categories={categoriesResult.data}
+      brands={brandsResult.data}
+      units={unitsResult.data}
     />
   );
 }
