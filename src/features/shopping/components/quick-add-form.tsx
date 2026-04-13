@@ -93,6 +93,17 @@ export function QuickAddForm({
         const { lookupBarcode } = await import("@/lib/barcode-lookup");
         const result = await lookupBarcode(scannedBarcode!);
 
+        // Auto-fill quantity and unit from Open Food Facts data
+        const autoFillQuantityUnit = () => {
+          if (!result.found && result.name) {
+            if (result.quantity) setDetailMeasurementQty(String(result.quantity));
+            if (result.unitAbbreviation && units) {
+              const matched = units.find(u => u.abbreviation === result.unitAbbreviation);
+              if (matched) setDetailUnitId(matched.id);
+            }
+          }
+        };
+
         if (result.found) {
           setProductName(result.name);
           setSelectedProductId(result.productId ?? null);
@@ -109,6 +120,7 @@ export function QuickAddForm({
           setBarcodeStatus(`${t("shopping.foundProduct")} ${result.name}`);
         } else if (result.name) {
           setProductName(result.name);
+          autoFillQuantityUnit();
           setBarcodeStatus(`${t("shopping.foundProduct")} ${result.name}`);
         } else {
           setBarcodeStatus(t("shopping.barcodeNotFound"));
